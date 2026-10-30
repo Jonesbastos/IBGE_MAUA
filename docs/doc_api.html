@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentação Técnica: API de Localidades do IBGE — Mauá (SP)</title>
+  <style>
+    :root {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-card: #1e293b;
+      --bg-code: #0b1120;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border-color: #334155;
+      --accent: #38bdf8;
+      --accent-hover: #0ea5e9;
+      --accent-dim: rgba(56, 189, 248, 0.12);
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --tag-int: #a78bfa;
+      --tag-str: #34d399;
+      --sidebar-width: 280px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      line-height: 1.6;
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* Sidebar Navigation */
+    .sidebar {
+      width: var(--sidebar-width);
+      background-color: var(--bg-secondary);
+      border-right: 1px solid var(--border-color);
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      overflow-y: auto;
+      padding: 1.5rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .sidebar-header {
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .sidebar-header h2 {
+      font-size: 1.1rem;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .sidebar-header span {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: block;
+      margin-top: 0.25rem;
+    }
+
+    .nav-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .nav-list a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.875rem;
+      padding: 0.45rem 0.65rem;
+      border-radius: 6px;
+      display: block;
+      transition: all 0.15s ease;
+    }
+
+    .nav-list a:hover {
+      background-color: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    /* Main Content */
+    .main-content {
+      margin-left: var(--sidebar-width);
+      flex: 1;
+      padding: 2.5rem 3.5rem;
+      max-width: 1100px;
+    }
+
+    /* Header & Badges */
+    .doc-header {
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .doc-header h1 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+    }
+
+    .meta-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .badge-primary { background: rgba(56, 189, 248, 0.2); color: var(--accent); }
+    .badge-success { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+    .badge-warning { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+    .badge-gray { background: #334155; color: #cbd5e1; }
+
+    /* Sections */
+    section {
+      margin-bottom: 3rem;
+      scroll-margin-top: 2rem;
+    }
+
+    h2 {
+      font-size: 1.45rem;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 0.5rem;
+    }
+
+    h3 {
+      font-size: 1.1rem;
+      color: #e2e8f0;
+      margin: 1.5rem 0 0.75rem;
+    }
+
+    p {
+      color: #cbd5e1;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+
+    ul, ol {
+      margin-left: 1.5rem;
+      margin-bottom: 1rem;
+      color: #cbd5e1;
+    }
+
+    li {
+      margin-bottom: 0.4rem;
+    }
+
+    /* Cards & Callouts */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: rgba(30, 41, 59, 0.7);
+      padding: 1rem 1.25rem;
+      border-radius: 0 8px 8px 0;
+      margin: 1.25rem 0;
+    }
+
+    .callout-warning {
+      border-left-color: var(--warning);
+      background: rgba(245, 158, 11, 0.08);
+    }
+
+    .callout-title {
+      font-weight: 600;
+      font-size: 0.9rem;
+      margin-bottom: 0.35rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .callout-warning .callout-title { color: var(--warning); }
+    .callout-info .callout-title { color: var(--accent); }
+
+    /* Hierarchy Visualization */
+    .hierarchy-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+      margin: 1.5rem 0;
+    }
+
+    .hierarchy-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.25rem;
+    }
+
+    .hierarchy-card h4 {
+      font-size: 0.95rem;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+
+    .flow-step {
+      background: #0f172a;
+      border: 1px solid var(--border-color);
+      padding: 0.5rem 0.8rem;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      margin-bottom: 0.4rem;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .flow-arrow {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      margin: -0.2rem 0 0.2rem 0;
+    }
+
+    /* Tables */
+    .table-responsive {
+      overflow-x: auto;
+      margin: 1.25rem 0;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      text-align: left;
+    }
+
+    th {
+      background: #111827;
+      color: #94a3b8;
+      font-weight: 600;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border-color);
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+    }
+
+    td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border-color);
+      color: #e2e8f0;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .type-badge {
+      font-family: monospace;
+      font-size: 0.75rem;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+    }
+    .type-int { background: rgba(167, 139, 250, 0.2); color: var(--tag-int); }
+    .type-str { background: rgba(52, 211, 153, 0.2); color: var(--tag-str); }
+
+    /* Code Blocks */
+    pre {
+      background: var(--bg-code);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+      color: #e2e8f0;
+      line-height: 1.5;
+      margin: 1rem 0;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: #38bdf8;
+    }
+
+    pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+
+    .code-comment { color: #64748b; }
+    .code-keyword { color: #f472b6; }
+    .code-string { color: #34d399; }
+    .code-func { color: #38bdf8; }
+    .code-num { color: #fb923c; }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      body { flex-direction: column; }
+      .sidebar {
+        width: 100%;
+        position: relative;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+      }
+      .main-content {
+        margin-left: 0;
+        padding: 1.5rem;
+      }
+      .hierarchy-container {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h2>🌐 IBGE Data Pipeline</h2>
+      <span>Engenharia de Dados — Mauá (SP)</span>
+    </div>
+    <ul class="nav-list">
+      <li><a href="#objetivo">1. Objetivo &amp; Finalidade</a></li>
+      <li><a href="#endpoints">2. Especificação de Endpoints</a></li>
+      <li><a href="#identificacao">3. Identificação de Mauá</a></li>
+      <li><a href="#json-real">4. Resposta JSON Oficial</a></li>
+      <li><a href="#dicionario">5. Dicionário de Dados</a></li>
+      <li><a href="#hierarquia">6. Estrutura Territorial</a></li>
+      <li><a href="#consumo-python">7. Consumo com Python</a></li>
+      <li><a href="#dataframe">8. Normalização em Pandas</a></li>
+      <li><a href="#qualidade">9. Data Quality &amp; Regras</a></li>
+      <li><a href="#limitacoes">10. Limitações da API</a></li>
+    </ul>
+  </aside>
+
+  <!-- Main Content Area -->
+  <main class="main-content">
+    <header class="doc-header">
+      <div class="meta-bar" style="margin-bottom: 0.5rem;">
+        <span class="badge badge-primary">Engenharia de Dados</span>
+        <span class="badge badge-success">API v1 IBGE</span>
+        <span class="badge badge-gray">Consulta: 30/10/2026</span>
+        <span class="badge badge-gray">Status: Homologado</span>
+      </div>
+      <h1>API de Localidades do IBGE: Mauá (SP)</h1>
+      <p style="margin-bottom: 0; font-size: 1.05rem; color: #94a3b8;">
+        Especificação técnica detalhada, dicionário de campos, contratos de dados e scripts de ingestão/transformação para o município de Mauá (Código IBGE 3529401).
+      </p>
+    </header>
+
+    <!-- 1. Objetivo -->
+    <section id="objetivo">
+      <h2>1. Objetivo &amp; Finalidade da API</h2>
+      <p>
+        A <strong>API de Localidades do IBGE</strong> (Serviço de Dados do Instituto Brasileiro de Geografia e Estatística) provê o repositório cadastral canônico e padronizado da organização territorial e político-administrativa do Brasil.
+      </p>
+      <p>
+        Para a nossa arquitetura de Engenharia de Dados, esta API atua como a <strong>tabela dimensão territorial central (Lookup Table / Master Data)</strong>, viabilizando:
+      </p>
+      <ul>
+        <li>Garantia de integridade com a chave primária oficial nacional (Código de 7 dígitos do IBGE);</li>
+        <li>Rastreabilidade das divisões regionais históricas (Mesorregiões/Microrregiões de 1989);</li>
+        <li>Conformidade com a nova divisão político-econômica contemporânea (Regiões Intermediárias/Imediatas de 2017);</li>
+        <li>Agrupamento padronizado por Unidade da Federação e Macrorregião geográfica.</li>
+      </ul>
+    </section>
+
+    <!-- 2. Endpoints -->
+    <section id="endpoints">
+      <h2>2. Especificação dos Endpoints HTTP</h2>
+
+      <div class="card">
+        <h3>Endpoint 1: Listagem de Municípios por Estado (São Paulo)</h3>
+        <p>Retorna todos os 645 municípios paulistas. Ideal para cargas em lote (batch ingestion) do estado de SP.</p>
+        <p><strong>URL:</strong> <code>https://servicodados.ibge.gov.br/api/v1/localidades/estados/35/municipios</code></p>
+        <p><strong>Método:</strong> <span class="badge badge-primary">GET</span> &nbsp;|&nbsp; <strong>Retorno:</strong> <code>application/json; charset=utf-8</code> &nbsp;|&nbsp; <strong>Cache:</strong> <code>max-age=2592000</code> (~30 dias)</p>
+      </div>
+
+      <div class="card">
+        <h3>Endpoint 2: Consulta Direta por Município (Mauá)</h3>
+        <p>Recuperação pontual com baixa latência utilizando a chave primária de Mauá (<code>3529401</code>).</p>
+        <p><strong>URL:</strong> <code>https://servicodados.ibge.gov.br/api/v1/localidades/municipios/3529401</code></p>
+        <p><strong>Método:</strong> <span class="badge badge-primary">GET</span> &nbsp;|&nbsp; <strong>Retorno:</strong> <code>application/json; charset=utf-8</code> &nbsp;|&nbsp; <strong>Autenticação:</strong> Nenhuma (Pública)</p>
+      </div>
+    </section>
+
+    <!-- 3. Identificação -->
+    <section id="identificacao">
+      <h2>3. Identificação de Mauá na Base IBGE</h2>
+      <p>O registro correspondente a Mauá (SP) possui os seguintes atributos de referência canônica:</p>
+
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Atributo</th>
+              <th>Valor Oficial</th>
+              <th>Propósito no Pipeline</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Código IBGE (id)</strong></td>
+              <td><code>3529401</code></td>
+              <td>Chave Primária Natural (PK) de 7 dígitos</td>
+            </tr>
+            <tr>
+              <td><strong>Nome do Município</strong></td>
+              <td><code>Mauá</code></td>
+              <td>Nome oficial com acentuação gráfica UTF-8</td>
+            </tr>
+            <tr>
+              <td><strong>UF (Sigla / ID)</strong></td>
+              <td><code>SP</code> / <code>35</code></td>
+              <td>Código e Sigla da Unidade da Federação</td>
+            </tr>
+            <tr>
+              <td><strong>Região Imediata</strong></td>
+              <td><code>350001</code> — São Paulo</td>
+              <td>Hierarquia contemporânea (Divisão 2017)</td>
+            </tr>
+            <tr>
+              <td><strong>Microrregião</strong></td>
+              <td><code>35061</code> — São Paulo</td>
+              <td>Hierarquia tradicional (Divisão 1989)</td>
+            </tr>
+            <tr>
+              <td><strong>Mesorregião</strong></td>
+              <td><code>3515</code> — Metropolitana de São Paulo</td>
+              <td>Hierarquia tradicional (Divisão 1989)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 4. JSON Real -->
+    <section id="json-real">
+      <h2>4. Resposta JSON Oficial (Payload Real de Mauá)</h2>
+      <p>Payload íntegro obtido em 30/10/2026 através da URL direta oficial:</p>
+      <pre><code>{
+  <span class="code-keyword">"id"</span>: <span class="code-num">3529401</span>,
+  <span class="code-keyword">"nome"</span>: <span class="code-string">"Mauá"</span>,
+  <span class="code-keyword">"microrregiao"</span>: {
+    <span class="code-keyword">"id"</span>: <span class="code-num">35061</span>,
+    <span class="code-keyword">"nome"</span>: <span class="code-string">"São Paulo"</span>,
+    <span class="code-keyword">"mesorregiao"</span>: {
+      <span class="code-keyword">"id"</span>: <span class="code-num">3515</span>,
+      <span class="code-keyword">"nome"</span>: <span class="code-string">"Metropolitana de São Paulo"</span>,
+      <span class="code-keyword">"UF"</span>: {
+        <span class="code-keyword">"id"</span>: <span class="code-num">35</span>,
+        <span class="code-keyword">"sigla"</span>: <span class="code-string">"SP"</span>,
+        <span class="code-keyword">"nome"</span>: <span class="code-string">"São Paulo"</span>,
+        <span class="code-keyword">"regiao"</span>: {
+          <span class="code-keyword">"id"</span>: <span class="code-num">3</span>,
+          <span class="code-keyword">"sigla"</span>: <span class="code-string">"SE"</span>,
+          <span class="code-keyword">"nome"</span>: <span class="code-string">"Sudeste"</span>
+        }
+      }
+    }
+  },
+  <span class="code-keyword">"regiao-imediata"</span>: {
+    <span class="code-keyword">"id"</span>: <span class="code-num">350001</span>,
+    <span class="code-keyword">"nome"</span>: <span class="code-string">"São Paulo"</span>,
+    <span class="code-keyword">"regiao-intermediaria"</span>: {
+      <span class="code-keyword">"id"</span>: <span class="code-num">3501</span>,
+      <span class="code-keyword">"nome"</span>: <span class="code-string">"São Paulo"</span>,
+      <span class="code-keyword">"UF"</span>: {
+        <span class="code-keyword">"id"</span>: <span class="code-num">35</span>,
+        <span class="code-keyword">"sigla"</span>: <span class="code-string">"SP"</span>,
+        <span class="code-keyword">"nome"</span>: <span class="code-string">"São Paulo"</span>,
+        <span class="code-keyword">"regiao"</span>: {
+          <span class="code-keyword">"id"</span>: <span class="code-num">3</span>,
+          <span class="code-keyword">"sigla"</span>: <span class="code-string">"SE"</span>,
+          <span class="code-keyword">"nome"</span>: <span class="code-string">"Sudeste"</span>
+        }
+      }
+    }
+  }
+}</code></pre>
+    </section>
+
+    <!-- 5. Dicionário de Dados -->
+    <section id="dicionario">
+      <h2>5. Dicionário de Dados Completo</h2>
+      <p>Catálogo de todos os nós aninhados, tipos primitivos e restrições de nulidade:</p>
+
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Caminho do Campo</th>
+              <th>Tipo</th>
+              <th>Nulo?</th>
+              <th>Exemplo Mauá</th>
+              <th>Descrição e Notas Técnicas</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>id</code></td>
+              <td><span class="type-badge type-int">Integer</span></td>
+              <td>Não</td>
+              <td><code>3529401</code></td>
+              <td>Código IBGE com 7 dígitos (UF: 35 + Mun: 2940 + DV: 1).</td>
+            </tr>
+            <tr>
+              <td><code>nome</code></td>
+              <td><span class="type-badge type-str">String</span></td>
+              <td>Não</td>
+              <td><code>"Mauá"</code></td>
+              <td>Nome canônico oficial do município.</td>
+            </tr>
+            <tr>
+              <td><code>microrregiao.id</code></td>
+              <td><span class="type-badge type-int">Integer</span></td>
+              <td>Não</td>
+              <td><code>35061</code></td>
+              <td>Identificador da microrregião geográfica (1989).</td>
+            </tr>
+            <tr>
+              <td><code>microrregiao.nome</code></td>
+              <td><span class="type-badge type-str">String</span></td>
+              <td>Não</td>
+              <td><code>"São Paulo"</code></td>
+              <td>Nome da microrregião geográfica.</td>
+            </tr>
+            <tr>
+              <td><code>microrregiao.mesorregiao.id</code></td>
+              <td><span class="type-badge type-int">Integer</span></td>
+              <td>Não</td>
+              <td><code>3515</code></td>
+              <td>Identificador da mesorregião geográfica (1989).</td>
+            </tr>
+            <tr>
+              <td><code>microrregiao.mesorregiao.nome</code></td>
+              <td><span class="type-badge type-str">String</span></td>
+              <td>Não</td>
+              <td><code>"Metropolitana de São Paulo"</code></td>
+              <td>Nome da mesorregião geográfica.</td>
+            </tr>
+            <tr>
+              <td><code>microrregiao.mesorregiao.UF.id</code></td>
+              <td><span class="type-badge type-int">Integer</span></td>
+              <td>Não</td>
+              <td><code>35</code></td>
+              <td>Código da Unidade da Federação (SP = 35).</td>
+            </tr>
+            <tr>
+              <td><code>microrregiao.mesorregiao.UF.sigla</code></td>
+              <td><span class="type-badge type-str">String(2)</span></td>
+              <td>Não</td>
+              <td><code>"SP"</code></td>
+              <td>Sigla alfanumérica de 2 caracteres da UF.</td>
+            </tr>
+            <tr>
+              <td><code>microrregiao.mesorregiao.UF.nome</code></td>
+              <td><span class="type-badge type-str">String</span></td>
+              <td>Não</td>
+              <td><code>"São Paulo"</code></td>
+              <td>Nome por extenso do Estado.</td>
+            </tr>
+            <tr>
+              <td><code>microrregiao...UF.regiao.id</code></td>
+              <td><span class="type-badge type-int">Integer</span></td>
+              <td>Não</td>
+              <td><code>3</code></td>
+              <td>Código oficial da macrorregião (3 = Sudeste).</td>
+            </tr>
+            <tr>
+              <td><code>microrregiao...UF.regiao.sigla</code></td>
+              <td><span class="type-badge type-str">String(2)</span></td>
+              <td>Não</td>
+              <td><code>"SE"</code></td>
+              <td>Sigla da macrorregião (SE).</td>
+            </tr>
+            <tr>
+              <td><code>microrregiao...UF.regiao.nome</code></td>
+              <td><span class="type-badge type-str">String</span></td>
+              <td>Não</td>
+              <td><code>"Sudeste"</code></td>
+              <td>Nome da macrorregião geográfica nacional.</td>
+            </tr>
+            <tr>
+              <td><code>regiao-imediata.id</code></td>
+              <td><span class="type-badge type-int">Integer</span></td>
+              <td>Não</td>
+              <td><code>350001</code></td>
+              <td>Código da Região Geográfica Imediata (Resolução 2017).</td>
+            </tr>
+            <tr>
+              <td><code>regiao-imediata.nome</code></td>
+              <td><span class="type-badge type-str">String</span></td>
+              <td>Não</td>
+              <td><code>"São Paulo"</code></td>
+              <td>Nome da Região Geográfica Imediata.</td>
+            </tr>
+            <tr>
+              <td><code>regiao-imediata.regiao-intermediaria.id</code></td>
+              <td><span class="type-badge type-int">Integer</span></td>
+              <td>Não</td>
+              <td><code>3501</code></td>
+              <td>Código da Região Geográfica Intermediária.</td>
+            </tr>
+            <tr>
+              <td><code>regiao-imediata.regiao-intermediaria.nome</code></td>
+              <td><span class="type-badge type-str">String</span></td>
+              <td>Não</td>
+              <td><code>"São Paulo"</code></td>
+              <td>Nome da Região Geográfica Intermediária.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout callout-warning">
+        <div class="callout-title">⚠️ Alerta de Arquitetura: Hífens nas Chaves</div>
+        As chaves <code>regiao-imediata</code> e <code>regiao-intermediaria</code> possuem hífens. No pipeline de dados, elas devem ser normalizadas para <code>regiao_imediata</code> e <code>regiao_intermediaria</code> antes de carregar em Data Warehouses ou modelos tabulares para evitar erros de sintaxe SQL.
+      </div>
+    </section>
+
+    <!-- 6. Estrutura Territorial -->
+    <section id="hierarquia">
+      <h2>6. Estrutura das Divisões Territoriais</h2>
+      <p>O IBGE mantém concomitantemente duas perspectivas de regionalização territorial:</p>
+
+      <div class="hierarchy-container">
+        <div class="hierarchy-card">
+          <h4>Divisão Tradicional (1989)</h4>
+          <div class="flow-step"><span>Município</span><strong>Mauá (3529401)</strong></div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-step"><span>Microrregião</span><strong>São Paulo (35061)</strong></div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-step"><span>Mesorregião</span><strong>Metropolitana de SP (3515)</strong></div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-step"><span>Estado (UF)</span><strong>São Paulo / SP (35)</strong></div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-step"><span>Macrorregião</span><strong>Sudeste / SE (3)</strong></div>
+        </div>
+
+        <div class="hierarchy-card">
+          <h4>Divisão Contemporânea (2017)</h4>
+          <div class="flow-step"><span>Município</span><strong>Mauá (3529401)</strong></div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-step"><span>Região Imediata</span><strong>São Paulo (350001)</strong></div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-step"><span>Região Intermediária</span><strong>São Paulo (3501)</strong></div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-step"><span>Estado (UF)</span><strong>São Paulo / SP (35)</strong></div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-step"><span>Macrorregião</span><strong>Sudeste / SE (3)</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. Consumo Python -->
+    <section id="consumo-python">
+      <h2>7. Exemplo de Consumo com Python e Requests</h2>
+      <p>Implementação orientada a produção com sessão HTTP resiliente, retries e timeout configurado:</p>
+
+      <pre><code><span class="code-keyword">import</span> requests
+<span class="code-keyword">from</span> requests.adapters <span class="code-keyword">import</span> HTTPAdapter
+<span class="code-keyword">from</span> urllib3.util <span class="code-keyword">import</span> Retry
+<span class="code-keyword">from</span> typing <span class="code-keyword">import</span> Optional, Dict, Any
+
+MAUA_URL = <span class="code-string">"https://servicodados.ibge.gov.br/api/v1/localidades/municipios/3529401"</span>
+
+<span class="code-keyword">def</span> <span class="code-func">get_ibge_session</span>() -> requests.Session:
+    <span class="code-string">"""Instancia sessão resiliente com pool de conexões e retries."""</span>
+    session = requests.Session()
+    retry_policy = Retry(
+        total=<span class="code-num">3</span>,
+        backoff_factor=<span class="code-num">0.5</span>,
+        status_forcelist=[<span class="code-num">429</span>, <span class="code-num">500</span>, <span class="code-num">502</span>, <span class="code-num">503</span>, <span class="code-num">504</span>],
+        raise_on_status=<span class="code-keyword">False</span>
+    )
+    adapter = HTTPAdapter(max_retries=retry_policy)
+    session.mount(<span class="code-string">"https://"</span>, adapter)
+    <span class="code-keyword">return</span> session
+
+<span class="code-keyword">def</span> <span class="code-func">extrair_dados_maua</span>() -> Optional[Dict[str, Any]]:
+    session = get_ibge_session()
+    headers = {<span class="code-string">"Accept"</span>: <span class="code-string">"application/json"</span>}
+    <span class="code-keyword">try</span>:
+        response = session.get(MAUA_URL, headers=headers, timeout=(<span class="code-num">3.05</span>, <span class="code-num">10.0</span>))
+        response.raise_for_status()
+        <span class="code-keyword">return</span> response.json()
+    <span class="code-keyword">except</span> requests.exceptions.RequestException <span class="code-keyword">as</span> e:
+        print(<span class="code-string">f"[Erro na Ingestão] Falha ao coletar dados: {e}"</span>)
+        <span class="code-keyword">return None</span>
+    <span class="code-keyword">finally</span>:
+        session.close()
+
+<span class="code-keyword">if</span> __name__ == <span class="code-string">"__main__"</span>:
+    payload = extrair_dados_maua()
+    <span class="code-keyword">if</span> payload:
+        print(<span class="code-string">f"Extração concluída: {payload['nome']} (ID: {payload['id']})"</span>)</code></pre>
+    </section>
+
+    <!-- 8. DataFrame Pandas -->
+    <section id="dataframe">
+      <h2>8. Normalização e Achatamento em Pandas</h2>
+      <p>Transformação do JSON aninhado em modelo tabular de 1 linha utilizando <code>pd.json_normalize</code>:</p>
+
+      <pre><code><span class="code-keyword">import</span> pandas <span class="code-keyword">as</span> pd
+
+<span class="code-keyword">def</span> <span class="code-func">criar_dataframe_maua</span>(raw_json: dict) -> pd.DataFrame:
+    <span class="code-comment"># 1. Normalização do JSON com separador '_'</span>
+    df = pd.json_normalize(raw_json, sep=<span class="code-string">"_"</span>)
+
+    <span class="code-comment"># 2. Saneamento de colunas (removendo hífens gerados por 'regiao-imediata')</span>
+    df.columns = df.columns.str.replace(<span class="code-string">"-"</span>, <span class="code-string">"_"</span>, regex=<span class="code-keyword">False</span>).str.lower()
+
+    <span class="code-comment"># 3. Forçar dtypes explícitos</span>
+    types = {
+        <span class="code-string">"id"</span>: <span class="code-string">"int64"</span>,
+        <span class="code-string">"nome"</span>: <span class="code-string">"string"</span>,
+        <span class="code-string">"microrregiao_id"</span>: <span class="code-string">"int64"</span>,
+        <span class="code-string">"microrregiao_nome"</span>: <span class="code-string">"string"</span>,
+        <span class="code-string">"microrregiao_mesorregiao_uf_sigla"</span>: <span class="code-string">"string"</span>
+    }
+    <span class="code-keyword">for</span> col, dt <span class="code-keyword">in</span> types.items():
+        <span class="code-keyword">if</span> col <span class="code-keyword">in</span> df.columns:
+            df[col] = df[col].astype(dt)
+
+    <span class="code-keyword">return</span> df</code></pre>
+    </section>
+
+    <!-- 9. Qualidade dos Dados -->
+    <section id="qualidade">
+      <h2>9. Validações e Regras de Data Quality</h2>
+
+      <div class="card">
+        <h3>Regras Mandatórias de Validação</h3>
+        <ul>
+          <li><strong>Regra 1: Integridade do Código IBGE (7 Dígitos):</strong> Deve ser inteiro positivo de exatamente 7 dígitos, iniciando com <code>35</code> (SP) e dígito verificador válido.</li>
+          <li><strong>Regra 2: Null Checks:</strong> Campos <code>id</code>, <code>nome</code>, <code>UF.sigla</code> e <code>regiao.nome</code> não toleram valores nulos.</li>
+          <li><strong>Regra 3: Preservação de Acentos UTF-8:</strong> O campo <code>nome</code> deve ser estritamente <code>"Mauá"</code>, rejeitando sequências corrompidas de encoding.</li>
+          <li><strong>Regra 4: Detecção de Schema Drift:</strong> Alterações de contrato pelo IBGE acionam falha antecipada (Fast-Fail) na camada Bronze.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 10. Limitações -->
+    <section id="limitacoes">
+      <h2>10. Limitações Críticas da API de Localidades</h2>
+
+      <div class="callout callout-warning">
+        <div class="callout-title">⚠️ Restrição Importante de Escopo de Dados</div>
+        A API de Localidades do IBGE <strong>NÃO</strong> fornece diretamente indicadores socioeconômicos ou estatísticos, tais como:
+        <ul style="margin-top: 0.5rem; margin-bottom: 0;">
+          <li>População residente ou censitária;</li>
+          <li>Produto Interno Bruto (PIB) municipal ou PIB per capita;</li>
+          <li>Índice de Desenvolvimento Humano (IDHM) ou renda média;</li>
+          <li>Estatísticas de saúde, emprego, saneamento ou educação.</li>
+        </ul>
+      </div>
+
+      <p>
+        <strong>Como enriquecer estes dados no projeto:</strong><br>
+        Para incorporar esses indicadores analíticos nas fases subsequentes da pipeline, utilizaremos a <strong>API SIDRA do IBGE (Sistema IBGE de Recuperação Automática)</strong> e a <strong>API de Agregados / Pesquisas</strong>:
+      </p>
+      <pre><code><span class="code-comment"># Endpoint canônico da API SIDRA/Agregados para indicadores de Mauá (N6[3529401]):</span>
+https://servicodados.ibge.gov.br/api/v3/agregados/{agregado}/periodos/{ano}/variaveis/{variavel}?localidades=N6[3529401]</code></pre>
+    </section>
+
+    <footer style="margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color); color: var(--text-muted); font-size: 0.85rem; text-align: center;">
+      Projeto Engenharia de Dados &bull; Desafio IBGE &bull; Município de Mauá (SP) &bull; 2026
+    </footer>
+  </main>
+
+</body>
+</html>

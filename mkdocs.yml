@@ -1,0 +1,64 @@
+site_name: Desafio IBGE — Engenharia de Dados
+site_description: Documentação técnica do pipeline de Engenharia de Dados para análise territorial do município de Mauá (SP) com dados oficiais do IBGE.
+site_author: Jones Bastos
+repo_name: desafio_IBGE
+
+theme:
+  name: material
+  language: pt-BR
+  palette:
+    # Esquema claro
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: light blue
+      toggle:
+        icon: material/brightness-7
+        name: Mudar para tema escuro
+    # Esquema escuro
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: light blue
+      toggle:
+        icon: material/brightness-4
+        name: Mudar para tema claro
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.top
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - content.code.annotate
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.keys
+  - tables
+  - attr_list
+  - def_list
+  - toc:
+      permalink: true
+
+nav:
+  - Início: index.md
+  - Arquitetura Medalhão: architecture.md
+  - API do IBGE (Mauá): doc_api.md
+  - Transformação & Qualidade: transformation.md
+  - Armazenamento (Bronze & Silver): storage.md
+  - Camada Gold & Analytics: gold_analytics.md
+  - Dashboard Interativo: dashboard.md

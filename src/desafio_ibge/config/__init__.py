@@ -1,0 +1,35 @@
+"""Submódulo de configuração e constantes da aplicação."""
+
+from desafio_ibge.config.settings import (
+    DATA_DIR,
+    DEFAULT_BACKOFF_FACTOR,
+    DEFAULT_DB_PATH,
+    DEFAULT_HTTP_TIMEOUT,
+    DEFAULT_MAX_RETRIES,
+    IBGE_BASE_URL,
+    IBGE_ESTADOS_SP_URL,
+    MAUA_DIRECT_URL,
+    MAUA_IBGE_CODE,
+    MAUA_NOME_ESPERADO,
+    MAUA_UF_ID_ESPERADO,
+    MAUA_UF_SIGLA_ESPERADA,
+    PROJECT_ROOT,
+    RETRY_STATUS_CODES,
+)
+
+__all__ = [
+    "DATA_DIR",
+    "DEFAULT_BACKOFF_FACTOR",
+    "DEFAULT_DB_PATH",
+    "DEFAULT_HTTP_TIMEOUT",
+    "DEFAULT_MAX_RETRIES",
+    "IBGE_BASE_URL",
+    "IBGE_ESTADOS_SP_URL",
+    "MAUA_DIRECT_URL",
+    "MAUA_IBGE_CODE",
+    "MAUA_NOME_ESPERADO",
+    "MAUA_UF_ID_ESPERADO",
+    "MAUA_UF_SIGLA_ESPERADA",
+    "PROJECT_ROOT",
+    "RETRY_STATUS_CODES",
+]

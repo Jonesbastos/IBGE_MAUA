@@ -1,0 +1,63 @@
+[project]
+name = "desafio-ibge"
+version = "0.1.0"
+description = "Pipeline de Engenharia de Dados para análise territorial do município de Mauá (SP) com dados do IBGE."
+authors = [
+    {name = "Jonesbastos", email = "89113261+Jonesbastos@users.noreply.github.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13,<4.0"
+dependencies = [
+    "requests (>=2.34.2,<3.0.0)",
+    "pandas (>=3.1.0,<4.0.0)",
+    "pydantic (>=2.14.2,<3.0.0)",
+    "streamlit (>=1.66.1,<2.0.0)",
+    "plotly (>=7.1.0,<8.0.0)"
+]
+
+[tool.poetry]
+packages = [{include = "desafio_ibge", from = "src"}]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "ruff (>=0.17.3,<0.18.0)",
+    "pytest (>=9.2.0,<10.0.0)",
+    "pytest-cov (>=7.1.0,<8.0.0)",
+    "mkdocs-material (>=9.8.0,<10.0.0)",
+    "taskipy (>=1.14.1,<2.0.0)",
+    "types-requests (>=2.33.0.20261006,<3.0.0.0)",
+    "requests-mock (>=1.12.1,<2.0.0)",
+    "pre-commit (>=4.7.0,<5.0.0)"
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort (ordenação de imports)
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["src"]
+addopts = "-v --cov=src/desafio_ibge --cov-report=term-missing"
+
+[tool.taskipy.tasks]
+docs = "mkdocs serve"
+docs-build = "mkdocs build --strict"
+dashboard = "streamlit run src/desafio_ibge/visualization/app.py"
