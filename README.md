@@ -4,6 +4,7 @@
 [![Poetry](https://img.shields.io/badge/poetry-package%20manager-purple.svg)](https://python-poetry.org/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Coverage](https://img.shields.io/badge/coverage-95.25%25-brightgreen.svg)]()
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://jonesbastos.github.io/IBGE_MAUA/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Pipeline profissional de Engenharia de Dados desenvolvido em Python utilizando dados oficiais do IBGE sobre o município de **Mauá (SP)** (Código IBGE: `3529401`), estruturado segundo as melhores práticas de arquitetura modular, **Medallion Architecture (Bronze, Silver e Gold)** no **SQLite**, validação de contratos de dados com **Pydantic v2**, normalização tabular com **Pandas** e dashboard analítico em **Streamlit** e **Plotly**.
@@ -125,14 +126,28 @@ poetry run ruff format .
 poetry run pytest --cov=desafio_ibge --cov-fail-under=50
 ```
 
-### 3.5. Consultar a Documentação Técnica (MkDocs Material)
+### 3.5. Documentação Técnica e Publicação Contínua (GitHub Pages)
+
+#### Visualização e Compilação Local (Taskipy)
 ```powershell
-# Iniciar servidor local de documentação
+# Iniciar servidor de desenvolvimento com live reload
 poetry run task docs
 
-# Validar compilação estrita (Strict Build)
+# Validar compilação estrita (Strict Build — sem links quebrados ou warnings)
 poetry run task docs-build
 ```
+
+#### Publicação Automatizada via GitHub Actions
+O projeto conta com uma esteira de CI/CD em [`.github/workflows/deploy-docs.yml`](.github/workflows/deploy-docs.yml) que compila em modo estrito e publica a documentação automaticamente no **GitHub Pages** a cada push na branch `main` ou via acionamento manual (`workflow_dispatch`).
+
+- **URL da Documentação Online**: [https://jonesbastos.github.io/IBGE_MAUA/](https://jonesbastos.github.io/IBGE_MAUA/)
+
+##### Procedimento para Habilitação do GitHub Pages no Repositório Remoto:
+1. No repositório remoto no GitHub (`https://github.com/Jonesbastos/IBGE_MAUA`), acesse a aba **Settings**.
+2. No menu lateral esquerdo, navegue até a seção **Pages** (em *Code and automation*).
+3. Em **Build and deployment** $\rightarrow$ **Source**, selecione **GitHub Actions** (em substituição a *Deploy from a branch*).
+4. Essa configuração concede permissão para o workflow publicar via OIDC (`id-token: write`, `pages: write`).
+5. Ao realizar o próximo push para a branch `main` ou disparar manualmente o workflow na aba **Actions** (*Deploy MkDocs to GitHub Pages* $\rightarrow$ *Run workflow*), o deploy será concluído e o site estará acessível publicamente.
 
 ---
 

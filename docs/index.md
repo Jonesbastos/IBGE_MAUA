@@ -68,8 +68,8 @@ poetry run ruff format .
 poetry run pytest
 ```
 
-### 3. Documentação Técnica
-O projeto utiliza **Taskipy** para automação de tarefas cotidianas:
+### 3. Documentação Técnica & CI/CD
+O projeto utiliza **Taskipy** para automação local e **GitHub Actions** para entrega contínua:
 
 ```bash
 # Iniciar o servidor local de documentação MkDocs
@@ -78,6 +78,9 @@ poetry run task docs
 # Validar compilação estrita da documentação (Strict Build)
 poetry run task docs-build
 ```
+
+- **Deploy Automático**: A documentação é compilada e publicada continuamente no GitHub Pages via GitHub Actions a cada alteração na branch `main`.
+- **Acesso Online**: [https://jonesbastos.github.io/IBGE_MAUA/](https://jonesbastos.github.io/IBGE_MAUA/)
 
 ---
 

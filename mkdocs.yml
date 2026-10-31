@@ -1,7 +1,10 @@
 site_name: Desafio IBGE — Engenharia de Dados
 site_description: Documentação técnica do pipeline de Engenharia de Dados para análise territorial do município de Mauá (SP) com dados oficiais do IBGE.
 site_author: Jones Bastos
-repo_name: desafio_IBGE
+site_url: https://jonesbastos.github.io/IBGE_MAUA/
+repo_url: https://github.com/Jonesbastos/IBGE_MAUA
+repo_name: Jonesbastos/IBGE_MAUA
+site_dir: site
 
 theme:
   name: material

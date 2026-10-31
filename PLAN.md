@@ -3,7 +3,7 @@
 > **Projeto**: `desafio_IBGE`
 > **Papel**: Engenheiro de Dados Sênior e Arquiteto de Software
 > **Arquitetura de Dados**: Medallion Architecture (Bronze $\rightarrow$ Silver $\rightarrow$ Gold) no SQLite
-> **Status**: Em Execução (Fases 1, 2 e 3 Concluídas; Planejamento Atualizado para Arquitetura Medalhão)
+> **Status**: Concluído (Fases 1 a 10 Homologadas com Sucesso)
 > **Data de Atualização**: 30 de Outubro de 2026
 > **Documentos Normativos de Referência**:
 > - Diretrizes Técnicas e de Governança: [`SKILL.md`](file:///c:/Users/Jones/projeto/desafio_IBGE/SKILL.md)
@@ -91,13 +91,13 @@ flowchart LR
 │   Validação &   │     │  Documentação   │     │    Dashboard    │     │  Modelagem Gold │
 │  Entrega E2E    │     │     MkDocs      │     │    Streamlit    │     │   (Views SQL)   │
 └─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘
-                                                       ▲                         │
-                                                       │                         ▼
-                                                       │                ┌─────────────────┐
-                                                       └─────────────── │     FASE 6      │
-                                                                        │  Testes Storage │
-                                                                        │   & Qualidade   │
-                                                                        └─────────────────┘
+         │                                             ▲                         │
+         ▼                                             │                         ▼
+┌─────────────────┐                                    │                ┌─────────────────┐
+│     FASE 10     │                                    └─────────────── │     FASE 6      │
+│  CI/CD & Deploy │                                                     │  Testes Storage │
+│  GitHub Pages   │                                                     │   & Qualidade   │
+└─────────────────┘                                                     └─────────────────┘
 ```
 
 ### 3.1. Rastreabilidade e Status das Fases
@@ -113,6 +113,7 @@ flowchart LR
 | **Fase 7** | Dashboard Interativo (Streamlit & Plotly) | ✅ **Concluída** | Interface `app.py`, consumo desacoplado da camada Gold, cards territoriais, governança, Plotly Express, 12 testes dedicados. |
 | **Fase 8** | Documentação Técnica com MkDocs Material | ✅ **Concluída** | MkDocs Material, Taskipy, doc_api, architecture, transformation, storage, gold_analytics, dashboard, pipeline.md e README.md final. |
 | **Fase 9** | Validação Integrada End-to-End e Publicação | ✅ **Concluída** | Orquestrador `main.py`, 82 testes automatizados (95.25% cobertura), validação real E2E contra API IBGE com código 0 e idempotência atestada. |
+| **Fase 10** | Automação CI/CD & Deploy GitHub Pages | ✅ **Concluída** | Workflow `.github/workflows/deploy-docs.yml`, `mkdocs.yml` com URLs remotas e `site_dir`, deploy estrito sem `pip` e documentação de ativação. |
 
 ---
 
@@ -349,3 +350,43 @@ flowchart LR
   - Pipeline executa de ponta a ponta sem intervenção manual.
   - Zero inconformidades no Ruff e testes 100% verdes com cobertura $\ge 50\%$.
   - Repositório limpo, documentado e pronto para publicação no GitHub.
+
+---
+
+### FASE 10 — Automação de CI/CD e Publicação no GitHub Pages (MkDocs Material)
+
+- **Objetivo**: Implementar a esteira automatizada de publicação da documentação técnica no GitHub Pages utilizando GitHub Actions e MkDocs Material com build estrito (`--strict`), sem o uso de `pip` e com mínima concessão de privilégios (`OIDC`).
+- **Pré-requisitos**: Fases 1 a 9 formalmente concluídas e auditadas.
+- **Atividades Técnicas**:
+  1. Configurar `mkdocs.yml` com metadados do repositório remoto (`site_url`, `repo_url`, `repo_name`, `site_dir: site`).
+  2. Criar workflow de CI/CD em `.github/workflows/deploy-docs.yml`:
+     - Gatilhos: `push` na branch `main` filtrando caminhos relevantes (`docs/**`, `mkdocs.yml`, `pyproject.toml`, `poetry.lock`) e `workflow_dispatch`.
+     - Permissões mínimas: `contents: read`, `pages: write`, `id-token: write`.
+     - Controle de concorrência com grupo `"pages"`.
+     - Setup do Poetry via `snok/install-poetry@v1` (sem `pip`).
+     - Setup do Python 3.13 com cache de dependências Poetry.
+     - Build estrito com `poetry run mkdocs build --strict`.
+     - Publicação no GitHub Pages via `actions/configure-pages@v5`, `actions/upload-pages-artifact@v3` e `actions/deploy-pages@v4`.
+  3. Atualizar `README.md` com guia passo a passo para habilitação manual no GitHub (`Settings` $\rightarrow$ `Pages` $\rightarrow$ `Build and deployment` $\rightarrow$ `Source: GitHub Actions`).
+  4. Manter o pipeline de dados (Bronze, Silver, Gold, Dashboard e testes) 100% inalterado.
+- **Checklist de Tarefas**:
+  - [x] Ajustar `mkdocs.yml` com URLs canônicas do GitHub Pages e repositório.
+  - [x] Criar diretório `.github/workflows/` e workflow `deploy-docs.yml`.
+  - [x] Configurar permissões de OIDC e controle de concorrência.
+  - [x] Validar compilação estrita localmente com `poetry run task docs-build`.
+  - [x] Atualizar `README.md` com instruções de CI/CD e link do GitHub Pages.
+  - [x] Executar verificações de conformidade (Ruff, Pytest, pre-commit).
+- **Critérios de Aceitação**:
+  - Workflow YAML válido e aderente aos padrões de segurança do GitHub Actions.
+  - `mkdocs build --strict` executa com sucesso gerando o diretório `site/`.
+  - `site/` devidamente ignorado no `.gitignore`.
+  - 100% dos 82 testes continuam aprovados e com cobertura $\ge 50\%$.
+- **Comandos de Validação**:
+  ```bash
+  poetry run task docs-build
+  poetry run ruff check .
+  poetry run ruff format --check .
+  poetry run pytest
+  poetry run pre-commit run --all-files
+  ```
+- **Entregáveis**: Workflow `.github/workflows/deploy-docs.yml`, configurações em `mkdocs.yml`, documentação em `README.md` e `PLAN.md`.
