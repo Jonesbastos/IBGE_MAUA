@@ -109,10 +109,10 @@ flowchart LR
 | **Fase 3** | Transformação, Achatamento e Data Quality | ✅ **Concluída** | Schema Pydantic v2, normalização com Pandas, saneamento snake_case, 100% testado. |
 | **Fase 4** | Armazenamento SQL — Camadas Bronze e Silver | ✅ **Concluída** | DDL Bronze (`bronze_ibge_raw`), DDL Silver (`silver_municipio`), UPSERT idempotente no SQLite. |
 | **Fase 5** | Modelagem Analítica SQL — Camada Gold | ✅ **Concluída** | Views SQL `gold_vw_municipio_hierarquia` e `gold_vw_qualidade_auditoria`, funções de KPIs e leitura em `storage.py`. |
-| **Fase 6** | Testes Automatizados de Storage e Qualidade | 🔄 **Em Andamento (Parcial)** | Pre-commit ativo, mocks configurados, cobertura atual em 98.4%. Testes Bronze, Silver e Gold ativos. |
+| **Fase 6** | Testes Automatizados de Storage e Qualidade | ✅ **Concluída** | Pre-commit ativo, mocks configurados, suite com 73 testes e cobertura global de 98.15%. |
 | **Fase 7** | Dashboard Interativo (Streamlit & Plotly) | ✅ **Concluída** | Interface `app.py`, consumo desacoplado da camada Gold, cards territoriais, governança, Plotly Express, 12 testes dedicados. |
-| **Fase 8** | Documentação Técnica com MkDocs Material | 🔄 **Em Andamento (Parcial)** | MkDocs Material, Taskipy, doc_api, architecture, transformation, storage, gold_analytics e dashboard ativos. |
-| **Fase 9** | Validação Integrada End-to-End e Publicação | ⏳ **Pendente** | Orquestrador `main.py` executando Bronze $\rightarrow$ Silver $\rightarrow$ Gold, homologação e publicação. |
+| **Fase 8** | Documentação Técnica com MkDocs Material | ✅ **Concluída** | MkDocs Material, Taskipy, doc_api, architecture, transformation, storage, gold_analytics, dashboard, pipeline.md e README.md final. |
+| **Fase 9** | Validação Integrada End-to-End e Publicação | ✅ **Concluída** | Orquestrador `main.py`, 82 testes automatizados (95.25% cobertura), validação real E2E contra API IBGE com código 0 e idempotência atestada. |
 
 ---
 
@@ -324,9 +324,9 @@ flowchart LR
   - [x] Criar e configurar `mkdocs.yml`.
   - [x] Criar `docs/architecture.md` detalhando o padrão Medalhão (Bronze $\rightarrow$ Silver $\rightarrow$ Gold).
   - [x] Criar `docs/transformation.md` detalhando o contrato Pydantic e normalização Pandas.
-  - [ ] Criar `docs/pipeline.md` detalhando a orquestração ponta a ponta.
-  - [ ] Atualizar integralmente o arquivo `README.md` na raiz do projeto.
-  - [ ] Validar compilação estrita da documentação via `poetry run task docs-build`.
+  - [x] Criar `docs/pipeline.md` detalhando a orquestração ponta a ponta.
+  - [x] Atualizar integralmente o arquivo `README.md` na raiz do projeto.
+  - [x] Validar compilação estrita da documentação via `poetry run task docs-build`.
 - **Critérios de Aceitação**:
   - O site estático do MkDocs compila com código 0 e sem links quebrados via `--strict`.
   - O `README.md` reflete fielmente a arquitetura Medalhão e o guia de execução do pipeline.
@@ -338,13 +338,13 @@ flowchart LR
 - **Objetivo**: Conduzir o ensaio de integração completo do pipeline de dados (E2E), criando o orquestrador `src/desafio_ibge/main.py` para executar o fluxo completo: Ingestão $\rightarrow$ Bronze $\rightarrow$ Silver $\rightarrow$ Gold $\rightarrow$ Auditoria.
 - **Pré-requisitos**: Todas as Fases 1 a 8 formalmente concluídas.
 - **Checklist de Tarefas**:
-  - [ ] Implementar orquestrador do pipeline em `src/desafio_ibge/main.py`.
-  - [ ] Executar pipeline completo contra a API do IBGE gerando o banco `data/ibge_maua.db`.
-  - [ ] Validar idempotência executando o pipeline duas vezes consecutivas.
-  - [ ] Executar bateria completa de testes com Pytest (cobertura $\ge 50\%$).
-  - [ ] Executar verificação e formatação integral com Ruff.
-  - [ ] Executar compilação estrita do MkDocs.
-  - [ ] Atualizar checklist final deste `PLAN.md`.
+  - [x] Implementar orquestrador do pipeline em `src/desafio_ibge/main.py`.
+  - [x] Executar pipeline completo contra a API do IBGE gerando o banco `data/ibge_maua.db`.
+  - [x] Validar idempotência executando o pipeline duas vezes consecutivas.
+  - [x] Executar bateria completa de testes com Pytest (cobertura de 95.25%, meta $\ge 50\%$).
+  - [x] Executar verificação e formatação integral com Ruff.
+  - [x] Executar compilação estrita do MkDocs.
+  - [x] Atualizar checklist final deste `PLAN.md`.
 - **Critérios de Aceitação**:
   - Pipeline executa de ponta a ponta sem intervenção manual.
   - Zero inconformidades no Ruff e testes 100% verdes com cobertura $\ge 50\%$.

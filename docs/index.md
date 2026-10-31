@@ -83,6 +83,10 @@ poetry run task docs-build
 
 ## 📚 Navegação na Documentação
 
+- 🏛️ **[Arquitetura Medalhão](architecture.md)**: Fundamentos, diagrama conceitual e especificações das camadas Bronze, Silver e Gold.
 - 📄 **[Documentação da API do IBGE](doc_api.md)**: Especificação detalhada dos endpoints, dicionário de dados dos 22 atributos, exemplo de payload JSON e regras de qualidade.
-- 📋 **[Planejamento Técnico (`PLAN.md`)](https://github.com/)**: Cronograma de desenvolvimento incremental por fases.
-- 🛡️ **[Diretrizes e Padrões (`SKILL.md`)](https://github.com/)**: Regras mandatórias de engenharia, governança e testes.
+- ⚙️ **[Transformação & Data Quality](transformation.md)**: Contratos Pydantic v2, normalização tabular e achatamento com Pandas.
+- 💾 **[Armazenamento SQLite (Bronze & Silver)](storage.md)**: Schemas DDL, UPSERT idempotente, metadados e controle de transações.
+- 🏆 **[Camada Gold & Analytics](gold_analytics.md)**: Views SQL de hierarquia territorial e auditoria contínua de qualidade.
+- 📊 **[Dashboard Interativo](dashboard.md)**: Interface Streamlit & Plotly para exploração analítica dos dados de Mauá.
+- 🔄 **[Pipeline & Orquestração](pipeline.md)**: Fluxo integrado ponta a ponta, governança e tratamento de falhas.

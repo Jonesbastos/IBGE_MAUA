@@ -62,3 +62,4 @@ nav:
   - Armazenamento (Bronze & Silver): storage.md
   - Camada Gold & Analytics: gold_analytics.md
   - Dashboard Interativo: dashboard.md
+  - Pipeline & Orquestração: pipeline.md
