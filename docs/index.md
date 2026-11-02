@@ -6,7 +6,12 @@
 
 ## 📌 Visão Geral
 
-O **`desafio_IBGE`** é um projeto profissional de Engenharia de Dados desenvolvido em Python 3.13.13. O ecossistema implementa boas práticas de arquitetura de software, ingestão resiliente de APIs REST públicas do IBGE, normalização tabular de séries temporais com Pandas, governança e qualidade de dados (Data Quality) com Pydantic v2, armazenamento relacional idempotente em SQLite sob o padrão **Medallion Architecture (Bronze, Silver e Gold)** e visualização analítica interativa com Streamlit e Plotly Express.
+O **`desafio_IBGE`** é um projeto profissional de Engenharia de Dados desenvolvido em Python 3.13. O ecossistema implementa boas práticas de arquitetura de software, ingestão resiliente de APIs REST públicas do IBGE, normalização tabular de séries temporais com Pandas, governança e qualidade de dados (Data Quality) com Pydantic v2, armazenamento relacional idempotente em SQLite sob o padrão **Medallion Architecture (Bronze, Silver e Gold)** e visualização analítica interativa com Streamlit e Plotly Express.
+
+A solução está homologada e implantada publicamente em produção:
+- 🌐 **Dashboard Interativo em Produção**: [https://ibge-maua-dashboard.streamlit.app/](https://ibge-maua-dashboard.streamlit.app/)
+- 📚 **Documentação Técnica Oficial**: [https://jonesbastos.github.io/IBGE_MAUA/](https://jonesbastos.github.io/IBGE_MAUA/)
+- 💼 **Apresentação Técnica para Portfólio**: [Apresentação & Portfólio LinkedIn](portfolio_linkedin.md)
 
 ### 🎯 Objeto de Análise
 
@@ -55,8 +60,9 @@ flowchart TD
         G_RES["gold_resumo_socioeconomico"]
     end
 
-    subgraph Presentation ["📊 Camada de Apresentação"]
+    subgraph Deployment ["☁️ Camada de Apresentação & Deploy"]
         DASH["Dashboard Interativo Streamlit<br>(5 Abas Analíticas + Plotly)"]
+        SNAP[("Snapshot SQL Versionado<br>ibge_maua_snapshot.sql (~98 KB)")]
     end
 
     API_LOC --> EXT
@@ -82,11 +88,13 @@ flowchart TD
     S_POP & S_PIB & S_CENS --> G_RES
 
     G_HIER & G_AUD & G_POP & G_PIB & G_DEMO & G_RES --> DASH
+    G_HIER & G_AUD & G_POP & G_PIB & G_DEMO & G_RES -. Exportação .-> SNAP
+    SNAP -. Auto-Restauração .-> DASH
 ```
 
 ### Inventário de Objetos do Banco SQLite (`data/ibge_maua.db`)
 
-| Camada | Objeto | Tipo | Granularidade / Domínio | Registros |
+| Camada | Objeto | Tipo | Granularidade / Domínio | Registros Reais |
 | :--- | :--- | :--- | :--- | :---: |
 | **Bronze** | `bronze_ibge_raw` | Tabela | Payload JSON bruto territorial + SHA-256 | 1 |
 | **Bronze** | `bronze_ibge_socioeconomico` | Tabela | Payloads brutos de pesquisas e agregados + SHA-256 | 5 |
@@ -111,7 +119,7 @@ flowchart TD
 | `desafio_ibge.extraction` | Cliente HTTP resiliente (`IBGEClient`) com pooling de conexões, retries exponenciais e timeouts explícitos. |
 | `desafio_ibge.validation` | Contratos estritos Pydantic v2 (`MunicipioSchema`, `PopulacaoSilverSchema`, `PIBSilverSchema`, `CensitarioSilverSchema`). |
 | `desafio_ibge.transformation` | Normalizadores Pandas com desaninhamento JSON, achatamento tabular, tipagem forte e saneamento `snake_case`. |
-| `desafio_ibge.loading` | Gerenciador de transações SQLite (`db_transaction`), DDLs, UPSERTs idempotentes e consultas às Views Gold. |
+| `desafio_ibge.loading` | Gerenciador de transações SQLite (`db_transaction`), DDLs, UPSERTs idempotentes, snapshots e views Gold. |
 | `desafio_ibge.visualization` | Aplicação interativa em Streamlit estruturada em 5 abas analíticas enriquecidas com gráficos Plotly Express. |
 | `desafio_ibge.main` | Orquestrador E2E com fail-fast, rastreamento de latência e execução integrada dos fluxos territorial e socioeconômico. |
 
@@ -151,7 +159,7 @@ poetry run ruff check .
 # Formatação de código com Ruff
 poetry run ruff format .
 
-# Suite de testes com verificação de cobertura (mínimo 50%)
+# Suite de testes com verificação de cobertura (152 testes, 93.44% cobertura)
 poetry run task test
 ```
 
@@ -164,8 +172,9 @@ poetry run task docs
 poetry run task docs-build
 ```
 
-- **Deploy Automático**: Compilação estrita e publicação contínua no GitHub Pages via GitHub Actions a cada push na branch `main`.
-- **Acesso Online**: [https://jonesbastos.github.io/IBGE_MAUA/](https://jonesbastos.github.io/IBGE_MAUA/)
+- **Deploy Automático da Documentação**: Compilação estrita e publicação contínua no GitHub Pages via GitHub Actions a cada push na branch `main`.
+- **Acesso Online à Documentação**: [https://jonesbastos.github.io/IBGE_MAUA/](https://jonesbastos.github.io/IBGE_MAUA/)
+- **Acesso Online ao Dashboard**: [https://ibge-maua-dashboard.streamlit.app/](https://ibge-maua-dashboard.streamlit.app/)
 
 ---
 
@@ -176,5 +185,6 @@ poetry run task docs-build
 - ⚙️ **[Transformação & Data Quality](transformation.md)**: Contratos Pydantic v2, normalização tabular com Pandas e desaninhamento de séries temporais.
 - 💾 **[Armazenamento SQLite (Bronze & Silver)](storage.md)**: DDLs relacionais, UPSERTs idempotentes, controle transacional e inventário físico.
 - 🏆 **[Camada Gold & Analytics](gold_analytics.md)**: Views analíticas SQL, janelamento com `LAG()`, divisão segura com `NULLIF()` e KPIs de governança.
-- 📊 **[Dashboard Interativo](dashboard.md)**: Interface Streamlit estruturada em 5 abas analíticas com visualizações Plotly Express.
+- 📊 **[Dashboard Interativo](dashboard.md)**: Interface Streamlit estruturada em 5 abas analíticas com visualizações Plotly Express e guia de evidências visuais.
 - 🔄 **[Pipeline & Orquestração](pipeline.md)**: Fluxo unificado end-to-end, controle transacional, fail-fast e execução idempotente.
+- 💼 **[Apresentação & Portfólio](portfolio_linkedin.md)**: Artigo técnico, post conciso para LinkedIn e guia de publicação para demonstração profissional.
