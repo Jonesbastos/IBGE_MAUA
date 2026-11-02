@@ -58,6 +58,7 @@ pythonpath = ["src"]
 addopts = "-v --cov=src/desafio_ibge --cov-report=term-missing"
 
 [tool.taskipy.tasks]
+test = "pytest --cov=src/desafio_ibge --cov-report=term-missing --cov-fail-under=50"
 docs = "mkdocs serve"
 docs-build = "mkdocs build --strict"
 dashboard = "streamlit run src/desafio_ibge/visualization/app.py"

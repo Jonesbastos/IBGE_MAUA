@@ -13,18 +13,34 @@ from desafio_ibge.loading.storage import (
     init_db,
     save_bronze,
     save_silver,
+    save_silver_censitario,
+    save_silver_pib,
+    save_silver_populacao,
 )
 from desafio_ibge.transformation.normalizer import json_to_dataframe
 from desafio_ibge.visualization.app import (
     load_auditoria_data,
+    load_demografia_sexo_data,
     load_hierarquia_data,
     load_kpis_geograficos,
     load_kpis_qualidade,
+    load_kpis_socioeconomicos,
+    load_metadados_governanca,
+    load_pib_historico_data,
+    load_populacao_historica_data,
+    load_resumo_socioeconomico_data,
+    load_tabelas_contagem,
+    load_volumetria_governanca,
     main,
     render_governanca_qualidade,
     render_graficos,
     render_header,
     render_sidebar,
+    render_tab_demografia_alfabetizacao,
+    render_tab_economia_pib,
+    render_tab_evolucao_populacional,
+    render_tab_governanca_auditoria,
+    render_tab_visao_geral,
     render_tabela_analitica,
     render_territorial_kpis,
 )
@@ -43,6 +59,164 @@ def populated_db_path(tmp_path: Path, maua_raw_payload: dict[str, Any]) -> Path:
     save_bronze(maua_raw_payload, endpoint_url=url, db_path=db_file)
     df_maua = json_to_dataframe(maua_raw_payload)
     save_silver(df_maua, db_path=db_file)
+    return db_file
+
+
+@pytest.fixture
+def fully_populated_db_path(
+    tmp_path: Path,
+    maua_raw_payload: dict[str, Any],
+) -> Path:
+    """Cria banco SQLite com camadas Territorial e Socioeconômica completas."""
+    db_file = tmp_path / "test_fully_populated.db"
+    init_db(db_path=db_file)
+
+    # 1. Territorial
+    url = (
+        "https://servicodados.ibge.gov.br/api/v1/localidades/municipios/"
+        f"{MAUA_IBGE_CODE}"
+    )
+    save_bronze(maua_raw_payload, endpoint_url=url, db_path=db_file)
+    df_maua = json_to_dataframe(maua_raw_payload)
+    save_silver(df_maua, db_path=db_file)
+
+    # 2. População
+    df_pop = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2021,
+                "populacao": 479000,
+                "tipo_populacao": "Estimativa de População",
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE - Estimativas",
+                "bronze_indicador": "populacao_estimada_historica",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "populacao": 418261,
+                "tipo_populacao": "Censo Demográfico",
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE - Censo 2022",
+                "bronze_indicador": "censo_pop_area_densidade",
+            },
+        ]
+    )
+    save_silver_populacao(df_pop, db_path=db_file)
+
+    # 3. PIB (formato longo do schema silver_ibge_pib)
+    df_pib = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "indicador_id": 46997,
+                "indicador_nome": "PIB corrente",
+                "valor": 24000000.0,
+                "unidade": "Mil Reais",
+                "tipo_valor": "Corrente",
+                "fonte_oficial": "IBGE - PIB Municipal",
+                "bronze_indicador": "pib_municipal_historico",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "indicador_id": 47001,
+                "indicador_nome": "PIB per capita",
+                "valor": 55000.0,
+                "unidade": "Reais",
+                "tipo_valor": "Per Capita",
+                "fonte_oficial": "IBGE - PIB Municipal",
+                "bronze_indicador": "pib_municipal_historico",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2023,
+                "indicador_id": 46997,
+                "indicador_nome": "PIB corrente",
+                "valor": 25000732.02,
+                "unidade": "Mil Reais",
+                "tipo_valor": "Corrente",
+                "fonte_oficial": "IBGE - PIB Municipal",
+                "bronze_indicador": "pib_municipal_historico",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2023,
+                "indicador_id": 47001,
+                "indicador_nome": "PIB per capita",
+                "valor": 59773.04,
+                "unidade": "Reais",
+                "tipo_valor": "Per Capita",
+                "fonte_oficial": "IBGE - PIB Municipal",
+                "bronze_indicador": "pib_municipal_historico",
+            },
+        ]
+    )
+    save_silver_pib(df_pib, db_path=db_file)
+
+    # 4. Censitário (formato longo do schema silver_ibge_censitario)
+    df_cens = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "variavel_id": 9991,
+                "variavel_nome": "População residente por sexo",
+                "categoria_classificacao": "Homens",
+                "valor": 201348.0,
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE - Censo 2022",
+                "bronze_indicador": "censo_demografia_sexo",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "variavel_id": 9992,
+                "variavel_nome": "População residente por sexo",
+                "categoria_classificacao": "Mulheres",
+                "valor": 216913.0,
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE - Censo 2022",
+                "bronze_indicador": "censo_demografia_sexo",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "variavel_id": 2513,
+                "variavel_nome": "Taxa de alfabetização",
+                "categoria_classificacao": "Total",
+                "valor": 96.74,
+                "unidade": "%",
+                "fonte_oficial": "IBGE - Censo 2022",
+                "bronze_indicador": "censo_alfabetizacao",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "variavel_id": 6318,
+                "variavel_nome": "Área territorial",
+                "categoria_classificacao": "Total",
+                "valor": 61.937,
+                "unidade": "km²",
+                "fonte_oficial": "IBGE - Censo 2022",
+                "bronze_indicador": "censo_pop_area_densidade",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "variavel_id": 6319,
+                "variavel_nome": "Densidade demográfica",
+                "categoria_classificacao": "Total",
+                "valor": 6753.01,
+                "unidade": "hab/km²",
+                "fonte_oficial": "IBGE - Censo 2022",
+                "bronze_indicador": "censo_pop_area_densidade",
+            },
+        ]
+    )
+    save_silver_censitario(df_cens, db_path=db_file)
     return db_file
 
 
@@ -82,6 +256,45 @@ def test_load_functions_with_populated_database(populated_db_path: Path) -> None
     assert kpis_dq["total_conforme"] == 1
 
 
+def test_load_functions_with_fully_populated_database(
+    fully_populated_db_path: Path,
+) -> None:
+    """Verifica carregamento de dados nas 4 novas views socioeconômicas."""
+    db_str = str(fully_populated_db_path)
+
+    df_pop = load_populacao_historica_data(db_str)
+    assert len(df_pop) == 2
+
+    df_pib = load_pib_historico_data(db_str)
+    assert len(df_pib) == 2
+
+    df_demo = load_demografia_sexo_data(db_str)
+    assert len(df_demo) == 1
+    assert df_demo.iloc[0]["populacao_masculina"] == 201348
+
+    df_resumo = load_resumo_socioeconomico_data(db_str)
+    assert not df_resumo.empty
+
+    kpis_socio = load_kpis_socioeconomicos(db_str)
+    assert kpis_socio["populacao_censo_2022"] == 418261
+    assert kpis_socio["taxa_alfabetizacao_pct"] == 96.74
+
+    df_contagens = load_tabelas_contagem(db_str)
+    assert not df_contagens.empty
+    assert "Nome do Objeto" in df_contagens.columns
+
+    df_vol = load_volumetria_governanca(db_str)
+    assert not df_vol.empty
+    assert "dominio" in df_vol.columns
+    assert "descricao_granularidade" in df_vol.columns
+    assert set(df_vol["camada"]) == {"Bronze", "Silver", "Gold"}
+
+    meta_gov = load_metadados_governanca(db_str)
+    assert meta_gov["total_bronze"] >= 1
+    assert meta_gov["total_silver"] >= 4
+    assert meta_gov["total_gold"] >= 2
+
+
 def test_load_functions_with_empty_database(empty_db_path: Path) -> None:
     """Verifica comportamento das funções de carga quando o banco está sem registros."""
     db_str = str(empty_db_path)
@@ -101,6 +314,32 @@ def test_load_functions_with_empty_database(empty_db_path: Path) -> None:
     assert kpis_dq["total_registros_auditados"] == 0
     assert kpis_dq["taxa_conformidade_pct"] == 0.0
 
+    df_pop = load_populacao_historica_data(db_str)
+    assert df_pop.empty
+
+    df_pib = load_pib_historico_data(db_str)
+    assert df_pib.empty
+
+    df_demo = load_demografia_sexo_data(db_str)
+    assert df_demo.empty
+
+    df_resumo = load_resumo_socioeconomico_data(db_str)
+    assert df_resumo.empty
+
+    kpis_socio = load_kpis_socioeconomicos(db_str)
+    assert kpis_socio["populacao_censo_2022"] is None
+
+    df_cont = load_tabelas_contagem(db_str)
+    assert not df_cont.empty
+
+
+def test_load_tabelas_contagem_nonexistent_path(tmp_path: Path) -> None:
+    """Testa inventário de tabelas com caminho de banco inexistente."""
+    fake_path = tmp_path / "non_existent.db"
+    df = load_tabelas_contagem(str(fake_path))
+    assert df.empty
+    assert list(df.columns) == ["Tipo", "Nome do Objeto", "Total Registros"]
+
 
 # ---------------------------------------------------------------------------
 # Testes Unitários dos Componentes Visuais
@@ -110,7 +349,6 @@ def test_load_functions_with_empty_database(empty_db_path: Path) -> None:
 def test_render_territorial_kpis_with_data(populated_db_path: Path) -> None:
     """Testa renderização das métricas territoriais sem levantar exceções."""
     df = load_hierarquia_data(str(populated_db_path))
-    # Execução direta dentro de contexto de teste
     render_territorial_kpis(df)
 
 
@@ -138,17 +376,91 @@ def test_render_governanca_qualidade(populated_db_path: Path) -> None:
     render_governanca_qualidade(kpis, df_audit)
 
 
-def test_render_graficos_plotly(populated_db_path: Path) -> None:
-    """Valida a construção e renderização dos gráficos Plotly."""
-    db_str = str(populated_db_path)
+def test_render_graficos_plotly(fully_populated_db_path: Path) -> None:
+    """Valida a construção e renderização dos gráficos Plotly com e sem volumetria."""
+    db_str = str(fully_populated_db_path)
     kpis = load_kpis_qualidade(db_str)
+    df_vol = load_volumetria_governanca(db_str)
+
+    # Chamada tradicional (com kpis_dq apenas)
     render_graficos(kpis)
+
+    # Chamada enriquecida (com kpis_dq e df_volumetria)
+    render_graficos(kpis, df_vol)
+
+    # Chamada com volumetria vazia
+    render_graficos(kpis, pd.DataFrame())
 
 
 def test_render_header_and_sidebar() -> None:
     """Testa componentes estruturais de cabeçalho e barra lateral."""
     render_header()
     render_sidebar("dummy_path/test.db")
+
+
+# ---------------------------------------------------------------------------
+# Testes Unitários das Novas Abas
+# ---------------------------------------------------------------------------
+
+
+def test_render_tab_visao_geral(fully_populated_db_path: Path) -> None:
+    """Valida renderização da Aba 1 com dados completos e vazios."""
+    db_str = str(fully_populated_db_path)
+    df_hierarquia = load_hierarquia_data(db_str)
+    kpis_socio = load_kpis_socioeconomicos(db_str)
+    df_resumo = load_resumo_socioeconomico_data(db_str)
+
+    # Com dados
+    render_tab_visao_geral(df_hierarquia, kpis_socio, df_resumo)
+
+    # Com dados vazios
+    render_tab_visao_geral(pd.DataFrame(), {}, pd.DataFrame())
+
+
+def test_render_tab_evolucao_populacional(fully_populated_db_path: Path) -> None:
+    """Valida renderização da Aba 2 com série histórica e vazia."""
+    db_str = str(fully_populated_db_path)
+    df_pop = load_populacao_historica_data(db_str)
+
+    render_tab_evolucao_populacional(df_pop)
+    render_tab_evolucao_populacional(pd.DataFrame())
+
+
+def test_render_tab_economia_pib(fully_populated_db_path: Path) -> None:
+    """Valida renderização da Aba 3 com dados de PIB, VAB e vazia."""
+    db_str = str(fully_populated_db_path)
+    df_pib = load_pib_historico_data(db_str)
+
+    render_tab_economia_pib(df_pib)
+    render_tab_economia_pib(pd.DataFrame())
+
+
+def test_render_tab_demografia_alfabetizacao(fully_populated_db_path: Path) -> None:
+    """Valida renderização da Aba 4 com dados censitários e vazia."""
+    db_str = str(fully_populated_db_path)
+    df_demo = load_demografia_sexo_data(db_str)
+    kpis_socio = load_kpis_socioeconomicos(db_str)
+
+    render_tab_demografia_alfabetizacao(df_demo, kpis_socio)
+    render_tab_demografia_alfabetizacao(pd.DataFrame(), {})
+
+
+def test_render_tab_governanca_auditoria(fully_populated_db_path: Path) -> None:
+    """Valida renderização da Aba 5 com governança, volumetria e metadados."""
+    db_str = str(fully_populated_db_path)
+    kpis = load_kpis_qualidade(db_str)
+    df_audit = load_auditoria_data(db_str)
+    df_vol = load_volumetria_governanca(db_str)
+    meta_gov = load_metadados_governanca(db_str)
+
+    # Chamada completa com metadados
+    render_tab_governanca_auditoria(kpis, df_audit, df_vol, meta_gov)
+
+    # Chamada apenas com 3 parâmetros
+    render_tab_governanca_auditoria(kpis, df_audit, df_vol)
+
+    # Chamada com dados vazios
+    render_tab_governanca_auditoria({}, pd.DataFrame(), pd.DataFrame(), {})
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +484,6 @@ def test_apptest_empty_database(
     monkeypatch.setenv("IBGE_DB_PATH", str(empty_db_path))
     at = AppTest.from_file(str(app_path)).run()
     assert not at.exception
-    # Verifica que o alerta de banco sem dados foi exibido
     assert len(at.warning) > 0
     warning_texts = " ".join([w.value for w in at.warning])
     assert "não possui registros" in warning_texts
@@ -182,7 +493,7 @@ def test_apptest_populated_database(
     populated_db_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Testa o ciclo de vida do app com dados completos de Mauá carregados."""
+    """Testa o ciclo de vida do app com dados territoriais de Mauá carregados."""
     app_path = (
         Path(__file__).resolve().parent.parent
         / "src"
@@ -194,19 +505,39 @@ def test_apptest_populated_database(
     monkeypatch.setenv("IBGE_DB_PATH", str(populated_db_path))
     at = AppTest.from_file(str(app_path)).run()
     assert not at.exception
-    # Título principal renderizado
+    assert len(at.title) > 0
+    assert "Desafio IBGE" in at.title[0].value
+    assert len(at.tabs) >= 5
+    assert len(at.dataframe) > 0
+
+
+def test_apptest_fully_populated_database(
+    fully_populated_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Testa ciclo de vida do app com dados socioeconômicos e territoriais completos."""
+    app_path = (
+        Path(__file__).resolve().parent.parent
+        / "src"
+        / "desafio_ibge"
+        / "visualization"
+        / "app.py"
+    )
+
+    monkeypatch.setenv("IBGE_DB_PATH", str(fully_populated_db_path))
+    at = AppTest.from_file(str(app_path)).run()
+    assert not at.exception
     assert len(at.title) > 0
     assert "Desafio IBGE" in at.title[0].value
 
-    # Cards de métricas renderizados
-    assert len(at.metric) >= 4
-    metric_labels = [m.label for m in at.metric]
-    assert "Município" in metric_labels
-    assert "Estado (UF)" in metric_labels
+    # Confirmação das 5 Abas
+    assert len(at.tabs) >= 5
 
-    # Abas e tabelas renderizadas
-    assert len(at.tabs) > 0
-    assert len(at.dataframe) > 0
+    # Cards de métricas renderizados em abundância
+    assert len(at.metric) >= 8
+
+    # Gráficos e tabelas
+    assert len(at.dataframe) >= 2
 
 
 def test_main_error_handling_graceful() -> None:
@@ -215,5 +546,4 @@ def test_main_error_handling_graceful() -> None:
         "desafio_ibge.visualization.app.load_hierarquia_data",
         side_effect=RuntimeError("Falha de I/O forçada"),
     ):
-        # Execução direta de main() com mock de erro
         main("dummy_corrupted.db")

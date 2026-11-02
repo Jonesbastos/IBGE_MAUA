@@ -11,17 +11,22 @@ from desafio_ibge.config.settings import MAUA_IBGE_CODE
 from desafio_ibge.loading.storage import (
     IBGEStorageError,
     IBGEStorageTransactionError,
+    canonical_json_sha256,
     db_transaction,
     get_db_connection,
     get_kpis_geograficos,
     get_kpis_qualidade,
     init_db,
+    list_bronze_socioeconomico,
     read_bronze,
     read_bronze_record,
+    read_bronze_socioeconomico,
     read_gold_auditoria,
     read_gold_hierarquia,
     read_silver,
+    save_all_socioeconomico_bronze,
     save_bronze,
+    save_bronze_socioeconomico,
     save_silver,
 )
 from desafio_ibge.transformation.normalizer import json_to_dataframe
@@ -298,7 +303,7 @@ def test_gold_views_idempotent_reinitialization(test_db_path: Path) -> None:
         cursor = conn.execute(
             "SELECT COUNT(*) AS total FROM sqlite_master WHERE type='view';"
         )
-        assert cursor.fetchone()["total"] == 2
+        assert cursor.fetchone()["total"] == 6
     finally:
         conn.close()
 
@@ -541,3 +546,1111 @@ def test_get_kpis_qualidade_empty(test_db_path: Path) -> None:
     assert kpis["taxa_conformidade_pct"] == 0.0
     assert kpis["total_falhas_qualidade"] == 0
     assert kpis["ultima_ingestao_utc"] is None
+
+
+# ---------------------------------------------------------------------------
+# Testes da Camada Bronze Socioeconômica (FASE 10 — Subetapa 10.2)
+# ---------------------------------------------------------------------------
+
+
+def test_canonical_json_sha256_deterministic() -> None:
+    """Verifica se dicts com chaves desordenadas geram o mesmo hash determinístico."""
+    payload1 = {"z": 100, "a": "texto", "m": [1, 2, 3]}
+    payload2 = {"a": "texto", "m": [1, 2, 3], "z": 100}
+
+    json1, hash1 = canonical_json_sha256(payload1)
+    json2, hash2 = canonical_json_sha256(payload2)
+
+    assert json1 == json2
+    assert hash1 == hash2
+    assert len(hash1) == 64
+
+
+def test_save_and_read_bronze_socioeconomico_success(test_db_path: Path) -> None:
+    """Testa persistência e leitura de dados brutos na bronze_ibge_socioeconomico."""
+    mock_payload = [{"id": "93", "variavel": "População", "serie": {"2022": "418261"}}]
+    url = "https://servicodados.ibge.gov.br/api/v3/agregados/4714/periodos/2022/variaveis/93"
+
+    checksum = save_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="censo_pop_area_densidade",
+        periodo_referencia="2022",
+        fonte_oficial="Censo Demográfico 2022",
+        endpoint_url=url,
+        raw_payload=mock_payload,
+        http_status=200,
+        db_path=test_db_path,
+    )
+    assert len(checksum) == 64
+
+    record = read_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="censo_pop_area_densidade",
+        periodo_referencia="2022",
+        db_path=test_db_path,
+    )
+    assert record is not None
+    assert record["municipio_id"] == MAUA_IBGE_CODE
+    assert record["indicador"] == "censo_pop_area_densidade"
+    assert record["periodo_referencia"] == "2022"
+    assert record["fonte_oficial"] == "Censo Demográfico 2022"
+    assert record["endpoint_url"] == url
+    assert record["checksum_sha256"] == checksum
+    assert record["http_status"] == 200
+    assert record["payload"] == mock_payload
+
+
+def test_read_bronze_socioeconomico_not_found(test_db_path: Path) -> None:
+    """Verifica retorno None quando registro socioeconômico não existe."""
+    record = read_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="inexistente",
+        periodo_referencia="2022",
+        db_path=test_db_path,
+    )
+    assert record is None
+
+
+def test_bronze_socioeconomico_upsert_idempotent(test_db_path: Path) -> None:
+    """Testa se executar a ingestão duas vezes não duplica linhas (idempotência)."""
+    mock_payload = [{"id": "93", "valor": "418261"}]
+    url = "https://servicodados.ibge.gov.br/api/v3/teste"
+
+    ck1 = save_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="pop_teste",
+        periodo_referencia="2022",
+        fonte_oficial="Teste IBGE",
+        endpoint_url=url,
+        raw_payload=mock_payload,
+        db_path=test_db_path,
+    )
+
+    ck2 = save_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="pop_teste",
+        periodo_referencia="2022",
+        fonte_oficial="Teste IBGE",
+        endpoint_url=url,
+        raw_payload=mock_payload,
+        db_path=test_db_path,
+    )
+
+    assert ck1 == ck2
+
+    conn = get_db_connection(test_db_path)
+    count = conn.execute("SELECT COUNT(*) FROM bronze_ibge_socioeconomico;").fetchone()[
+        0
+    ]
+    conn.close()
+    assert count == 1
+
+
+def test_bronze_socioeconomico_update_record(test_db_path: Path) -> None:
+    """Testa atualização de registro quando o payload oficial sofre modificação."""
+    url = "https://servicodados.ibge.gov.br/api/v3/teste"
+
+    ck1 = save_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="pib_teste",
+        periodo_referencia="2023",
+        fonte_oficial="PIB IBGE",
+        endpoint_url=url,
+        raw_payload={"versao": 1, "pib": 1000},
+        db_path=test_db_path,
+    )
+
+    ck2 = save_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="pib_teste",
+        periodo_referencia="2023",
+        fonte_oficial="PIB IBGE Atualizado",
+        endpoint_url=url,
+        raw_payload={"versao": 2, "pib": 1200},
+        db_path=test_db_path,
+    )
+
+    assert ck1 != ck2
+
+    record = read_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="pib_teste",
+        periodo_referencia="2023",
+        db_path=test_db_path,
+    )
+    assert record is not None
+    assert record["checksum_sha256"] == ck2
+    assert record["fonte_oficial"] == "PIB IBGE Atualizado"
+    assert record["payload"]["versao"] == 2
+
+
+def test_bronze_socioeconomico_invalid_inputs(test_db_path: Path) -> None:
+    """Testa validação de integridade nos parâmetros da Bronze socioeconômica."""
+    with pytest.raises(IBGEStorageError, match="Campos identificadores"):
+        save_bronze_socioeconomico(
+            municipio_id=MAUA_IBGE_CODE,
+            indicador="",
+            periodo_referencia="2022",
+            fonte_oficial="IBGE",
+            endpoint_url="http://test",
+            raw_payload={"x": 1},
+            db_path=test_db_path,
+        )
+
+    with pytest.raises(IBGEStorageError, match="Payload inválido"):
+        save_bronze_socioeconomico(
+            municipio_id=MAUA_IBGE_CODE,
+            indicador="teste",
+            periodo_referencia="2022",
+            fonte_oficial="IBGE",
+            endpoint_url="http://test",
+            raw_payload="string_invalida_nao_json",  # type: ignore[arg-type]
+            db_path=test_db_path,
+        )
+
+
+def test_list_bronze_socioeconomico(test_db_path: Path) -> None:
+    """Testa listagem e filtro de indicadores na camada Bronze."""
+    save_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="ind_1",
+        periodo_referencia="2022",
+        fonte_oficial="IBGE",
+        endpoint_url="http://test1",
+        raw_payload=[1],
+        db_path=test_db_path,
+    )
+    save_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="ind_2",
+        periodo_referencia="2023",
+        fonte_oficial="IBGE",
+        endpoint_url="http://test2",
+        raw_payload=[2],
+        db_path=test_db_path,
+    )
+    save_bronze_socioeconomico(
+        municipio_id=9999999,
+        indicador="ind_outro",
+        periodo_referencia="2022",
+        fonte_oficial="IBGE",
+        endpoint_url="http://test3",
+        raw_payload=[3],
+        db_path=test_db_path,
+    )
+
+    all_items = list_bronze_socioeconomico(db_path=test_db_path)
+    assert len(all_items) == 3
+
+    maua_items = list_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE, db_path=test_db_path
+    )
+    assert len(maua_items) == 2
+
+
+def test_save_all_socioeconomico_bronze(test_db_path: Path) -> None:
+    """Testa função utilitária para salvamento em lote de indicadores."""
+    batch = {
+        "ind_a": {
+            "municipio_id": MAUA_IBGE_CODE,
+            "periodo_referencia": "2022",
+            "fonte_oficial": "Fonte A",
+            "endpoint_url": "http://a",
+            "payload": {"a": 1},
+        },
+        "ind_b": {
+            "municipio_id": MAUA_IBGE_CODE,
+            "periodo_referencia": "2023",
+            "fonte_oficial": "Fonte B",
+            "endpoint_url": "http://b",
+            "payload": [1, 2],
+        },
+    }
+    checksums = save_all_socioeconomico_bronze(batch, db_path=test_db_path)
+    assert len(checksums) == 2
+    assert "ind_a" in checksums
+    assert "ind_b" in checksums
+
+
+def test_bronze_socioeconomico_preserves_existing_bronze_raw(
+    test_db_path: Path,
+    maua_raw_payload: dict[str, Any],
+) -> None:
+    """Garante que a nova tabela não interfere nas tabelas territoriais existentes."""
+    url = f"https://servicodados.ibge.gov.br/api/v1/localidades/municipios/{MAUA_IBGE_CODE}"
+    save_bronze(maua_raw_payload, endpoint_url=url, db_path=test_db_path)
+
+    save_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="censo_pop",
+        periodo_referencia="2022",
+        fonte_oficial="Censo 2022",
+        endpoint_url="http://socio",
+        raw_payload=[{"pop": 418261}],
+        db_path=test_db_path,
+    )
+
+    raw_rec = read_bronze(MAUA_IBGE_CODE, db_path=test_db_path)
+    assert raw_rec is not None
+    assert raw_rec["id"] == MAUA_IBGE_CODE
+
+
+# ---------------------------------------------------------------------------
+# Testes da Camada Silver Socioeconômica (População, PIB e Censitário)
+# ---------------------------------------------------------------------------
+
+
+def test_save_and_read_silver_populacao(test_db_path: Path) -> None:
+    """Testa persistência, leitura e UPSERT idempotente em silver_ibge_populacao."""
+    from desafio_ibge.loading.storage import (
+        read_silver_populacao,
+        save_silver_populacao,
+    )
+
+    df_pop = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "populacao": 418261,
+                "tipo_populacao": "Censo Demográfico",
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE - Censo 2022",
+                "bronze_indicador": "censo_pop_area_densidade",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2021,
+                "populacao": 479000,
+                "tipo_populacao": "Estimativa Populacional",
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE - Estimativas",
+                "bronze_indicador": "populacao_estimada_historica",
+            },
+        ]
+    )
+
+    # 1. Primeira persistência
+    count = save_silver_populacao(df_pop, db_path=test_db_path)
+    assert count == 2
+
+    # 2. Leitura
+    read_df = read_silver_populacao(MAUA_IBGE_CODE, db_path=test_db_path)
+    assert len(read_df) == 2
+    assert "transformed_at" in read_df.columns
+
+    # 3. UPSERT idempotente (atualiza população estimada com retificação)
+    df_pop_updated = df_pop.copy()
+    df_pop_updated.loc[df_pop_updated["ano_referencia"] == 2021, "populacao"] = 479500
+    save_silver_populacao(df_pop_updated, db_path=test_db_path)
+
+    read_df_updated = read_silver_populacao(MAUA_IBGE_CODE, db_path=test_db_path)
+    assert len(read_df_updated) == 2  # Não duplicou registros
+    val_2021 = read_df_updated.loc[
+        read_df_updated["ano_referencia"] == 2021, "populacao"
+    ].iloc[0]
+    assert val_2021 == 479500
+
+
+def test_save_and_read_silver_pib(test_db_path: Path) -> None:
+    """Testa persistência e integridade relacional em silver_ibge_pib."""
+    from desafio_ibge.loading.storage import read_silver_pib, save_silver_pib
+
+    df_pib = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2023,
+                "indicador_id": 46997,
+                "indicador_nome": "PIB corrente",
+                "valor": 25000732.02,
+                "unidade": "Mil Reais",
+                "tipo_valor": "Corrente",
+                "fonte_oficial": "IBGE - PIB",
+                "bronze_indicador": "pib_municipal_historico",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2023,
+                "indicador_id": 47001,
+                "indicador_nome": "PIB per capita",
+                "valor": 59773.11,
+                "unidade": "Reais",
+                "tipo_valor": "Per Capita",
+                "fonte_oficial": "IBGE - PIB",
+                "bronze_indicador": "pib_municipal_historico",
+            },
+        ]
+    )
+
+    count = save_silver_pib(df_pib, db_path=test_db_path)
+    assert count == 2
+
+    read_df = read_silver_pib(MAUA_IBGE_CODE, db_path=test_db_path)
+    assert len(read_df) == 2
+    assert set(read_df["indicador_id"]) == {46997, 47001}
+
+
+def test_save_and_read_silver_censitario(test_db_path: Path) -> None:
+    """Testa persistência e recuperação em silver_ibge_censitario."""
+    from desafio_ibge.loading.storage import (
+        read_silver_censitario,
+        save_silver_censitario,
+    )
+
+    df_cen = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "variavel_id": 6318,
+                "variavel_nome": "Área territorial",
+                "categoria_classificacao": "Total",
+                "valor": 61.937,
+                "unidade": "km²",
+                "fonte_oficial": "IBGE - Censo 2022",
+                "bronze_indicador": "censo_pop_area_densidade",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "variavel_id": 2513,
+                "variavel_nome": "Taxa de alfabetização",
+                "categoria_classificacao": "Total",
+                "valor": 96.74,
+                "unidade": "%",
+                "fonte_oficial": "IBGE - Censo 2022",
+                "bronze_indicador": "censo_alfabetizacao",
+            },
+        ]
+    )
+
+    count = save_silver_censitario(df_cen, db_path=test_db_path)
+    assert count == 2
+
+    read_df = read_silver_censitario(MAUA_IBGE_CODE, db_path=test_db_path)
+    assert len(read_df) == 2
+    assert "Taxa de alfabetização" in read_df["variavel_nome"].values
+
+
+def test_save_silver_invalid_inputs(test_db_path: Path) -> None:
+    """Garante que DataFrames vazios ou sem colunas obrigatórias levantam erro."""
+    from desafio_ibge.loading.storage import (
+        save_silver_censitario,
+        save_silver_pib,
+        save_silver_populacao,
+    )
+
+    empty_df = pd.DataFrame()
+    with pytest.raises(IBGEStorageError):
+        save_silver_populacao(empty_df, db_path=test_db_path)
+
+    with pytest.raises(IBGEStorageError):
+        save_silver_pib(empty_df, db_path=test_db_path)
+
+    with pytest.raises(IBGEStorageError):
+        save_silver_censitario(empty_df, db_path=test_db_path)
+
+    missing_cols_df = pd.DataFrame([{"municipio_id": 3529401}])
+    with pytest.raises(IBGEStorageError):
+        save_silver_populacao(missing_cols_df, db_path=test_db_path)
+
+
+def test_save_all_socioeconomico_silver(test_db_path: Path) -> None:
+    """Testa persistência em lote da Silver Socioeconômica via dicionário."""
+    from desafio_ibge.loading.storage import (
+        read_silver_censitario,
+        read_silver_pib,
+        read_silver_populacao,
+        save_all_socioeconomico_silver,
+    )
+
+    dfs = {
+        "populacao": pd.DataFrame(
+            [
+                {
+                    "municipio_id": MAUA_IBGE_CODE,
+                    "ano_referencia": 2022,
+                    "populacao": 418261,
+                    "tipo_populacao": "Censo Demográfico",
+                    "unidade": "Pessoas",
+                    "fonte_oficial": "IBGE",
+                    "bronze_indicador": "censo",
+                }
+            ]
+        ),
+        "pib": pd.DataFrame(
+            [
+                {
+                    "municipio_id": MAUA_IBGE_CODE,
+                    "ano_referencia": 2023,
+                    "indicador_id": 46997,
+                    "indicador_nome": "PIB",
+                    "valor": 25000732.0,
+                    "unidade": "Mil Reais",
+                    "tipo_valor": "Corrente",
+                    "fonte_oficial": "IBGE",
+                    "bronze_indicador": "pib",
+                }
+            ]
+        ),
+        "censitario": pd.DataFrame(
+            [
+                {
+                    "municipio_id": MAUA_IBGE_CODE,
+                    "ano_referencia": 2022,
+                    "variavel_id": 6318,
+                    "variavel_nome": "Área",
+                    "categoria_classificacao": "Total",
+                    "valor": 61.937,
+                    "unidade": "km²",
+                    "fonte_oficial": "IBGE",
+                    "bronze_indicador": "censo",
+                }
+            ]
+        ),
+    }
+
+    counts = save_all_socioeconomico_silver(dfs, db_path=test_db_path)
+    assert counts == {"populacao": 1, "pib": 1, "censitario": 1}
+
+    assert len(read_silver_populacao(MAUA_IBGE_CODE, db_path=test_db_path)) == 1
+    assert len(read_silver_pib(MAUA_IBGE_CODE, db_path=test_db_path)) == 1
+    assert len(read_silver_censitario(MAUA_IBGE_CODE, db_path=test_db_path)) == 1
+
+
+def test_read_silver_without_filter(test_db_path: Path) -> None:
+    """Testa recuperação dos DataFrames Silver sem especificar municipio_id."""
+    from desafio_ibge.loading.storage import (
+        read_silver_censitario,
+        read_silver_pib,
+        read_silver_populacao,
+        save_silver_censitario,
+        save_silver_pib,
+        save_silver_populacao,
+    )
+
+    df_pop = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "populacao": 418261,
+                "tipo_populacao": "Censo Demográfico",
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "censo",
+            }
+        ]
+    )
+    save_silver_populacao(df_pop, db_path=test_db_path)
+    all_pop = read_silver_populacao(municipio_id=None, db_path=test_db_path)
+    assert len(all_pop) == 1
+
+    df_pib = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2023,
+                "indicador_id": 46997,
+                "indicador_nome": "PIB",
+                "valor": 25000732.0,
+                "unidade": "Mil Reais",
+                "tipo_valor": "Corrente",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pib",
+            }
+        ]
+    )
+    save_silver_pib(df_pib, db_path=test_db_path)
+    all_pib = read_silver_pib(municipio_id=None, db_path=test_db_path)
+    assert len(all_pib) == 1
+
+    df_cen = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "variavel_id": 6318,
+                "variavel_nome": "Área",
+                "categoria_classificacao": "Total",
+                "valor": 61.937,
+                "unidade": "km²",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "censo",
+            }
+        ]
+    )
+    save_silver_censitario(df_cen, db_path=test_db_path)
+    all_cen = read_silver_censitario(municipio_id=None, db_path=test_db_path)
+    assert len(all_cen) == 1
+
+
+# ---------------------------------------------------------------------------
+# Testes da Camada Gold Socioeconômica (Views Analíticas e Métricas SQL)
+# ---------------------------------------------------------------------------
+
+
+def test_gold_socioeconomico_views_creation(test_db_path: Path) -> None:
+    """Valida se todas as novas views analíticas são criadas em init_db."""
+    from desafio_ibge.loading.storage import get_db_connection, init_db
+
+    init_db(db_path=test_db_path)
+    conn = get_db_connection(db_path=test_db_path)
+    try:
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name;"
+        )
+        views = [row["name"] for row in cursor.fetchall()]
+        assert "gold_populacao_historica" in views
+        assert "gold_pib_historico" in views
+        assert "gold_demografia_sexo" in views
+        assert "gold_resumo_socioeconomico" in views
+        assert "gold_vw_municipio_hierarquia" in views
+        assert "gold_vw_qualidade_auditoria" in views
+    finally:
+        conn.close()
+
+
+def test_gold_populacao_historica_lag_and_variations(test_db_path: Path) -> None:
+    """Testa cálculo de LAG, variação absoluta, percentual e anos consecutivos."""
+    from desafio_ibge.loading.storage import (
+        read_gold_populacao_historica,
+        save_silver_populacao,
+    )
+
+    df_pop = pd.DataFrame(
+        [
+            # Estimativas com anos consecutivos e salto de ano
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2020,
+                "populacao": 400000,
+                "tipo_populacao": "Estimativa Populacional",
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pop_est",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2021,
+                "populacao": 410000,
+                "tipo_populacao": "Estimativa Populacional",
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pop_est",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2023,  # Pulo de 2 anos (não consecutivo)
+                "populacao": 420000,
+                "tipo_populacao": "Estimativa Populacional",
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pop_est",
+            },
+            # Censo Demográfico em metodologia separada
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "populacao": 418261,
+                "tipo_populacao": "Censo Demográfico",
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "censo_pop",
+            },
+        ]
+    )
+    save_silver_populacao(df_pop, db_path=test_db_path)
+
+    gold_pop = read_gold_populacao_historica(MAUA_IBGE_CODE, db_path=test_db_path)
+    assert len(gold_pop) == 4
+
+    # 1. Censo não herda LAG das estimativas
+    censo_row = gold_pop[gold_pop["tipo_populacao"] == "Censo Demográfico"].iloc[0]
+    assert pd.isna(censo_row["variacao_absoluta_anterior"])
+    assert pd.isna(censo_row["variacao_percentual_anterior"])
+
+    # 2. Estimativas 2020: primeira observação, LAG é nulo
+    est_2020 = gold_pop[
+        (gold_pop["tipo_populacao"] == "Estimativa Populacional")
+        & (gold_pop["ano_referencia"] == 2020)
+    ].iloc[0]
+    assert pd.isna(est_2020["variacao_absoluta_anterior"])
+
+    # 3. Estimativas 2021: variação absoluta = 10000, percentual = 2.5%, consecutivo = 1
+    est_2021 = gold_pop[
+        (gold_pop["tipo_populacao"] == "Estimativa Populacional")
+        & (gold_pop["ano_referencia"] == 2021)
+    ].iloc[0]
+    assert est_2021["variacao_absoluta_anterior"] == 10000
+    assert est_2021["variacao_percentual_anterior"] == 2.50
+    assert est_2021["flag_anos_consecutivos"] == 1
+
+    # 4. Estimativas 2023: não consecutivo (2023 - 2021 != 1)
+    est_2023 = gold_pop[
+        (gold_pop["tipo_populacao"] == "Estimativa Populacional")
+        & (gold_pop["ano_referencia"] == 2023)
+    ].iloc[0]
+    assert est_2023["flag_anos_consecutivos"] == 0
+
+
+def test_gold_pib_historico_nominal_and_sectoral_shares(test_db_path: Path) -> None:
+    """Testa pivotagem, cálculo de variação nominal e participações setoriais do PIB."""
+    from desafio_ibge.loading.storage import (
+        read_gold_pib_historico,
+        save_silver_pib,
+    )
+
+    df_pib = pd.DataFrame(
+        [
+            # 2020
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2020,
+                "indicador_id": 46997,
+                "indicador_nome": "PIB corrente",
+                "valor": 1000000.0,
+                "unidade": "Mil Reais",
+                "tipo_valor": "Corrente",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pib",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2020,
+                "indicador_id": 47001,
+                "indicador_nome": "PIB per capita",
+                "valor": 25000.0,
+                "unidade": "Reais",
+                "tipo_valor": "Per Capita",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pib",
+            },
+            # 2021
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2021,
+                "indicador_id": 46997,
+                "indicador_nome": "PIB corrente",
+                "valor": 1200000.0,  # Variação nominal +20%
+                "unidade": "Mil Reais",
+                "tipo_valor": "Corrente",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pib",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2021,
+                "indicador_id": 47001,
+                "indicador_nome": "PIB per capita",
+                "valor": 30000.0,  # Variação per capita +20%
+                "unidade": "Reais",
+                "tipo_valor": "Per Capita",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pib",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2021,
+                "indicador_id": 47007,
+                "indicador_nome": "VAB Indústria",
+                "valor": 400000.0,
+                "unidade": "Mil Reais",
+                "tipo_valor": "Corrente",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pib",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2021,
+                "indicador_id": 47008,
+                "indicador_nome": "VAB Serviços",
+                "valor": 600000.0,
+                "unidade": "Mil Reais",
+                "tipo_valor": "Corrente",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pib",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2021,
+                "indicador_id": 47004,
+                "indicador_nome": "VAB Total",
+                "valor": 1000000.0,
+                "unidade": "Mil Reais",
+                "tipo_valor": "Corrente",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pib",
+            },
+        ]
+    )
+    save_silver_pib(df_pib, db_path=test_db_path)
+
+    gold_pib = read_gold_pib_historico(MAUA_IBGE_CODE, db_path=test_db_path)
+    assert len(gold_pib) == 2
+
+    row_2021 = gold_pib[gold_pib["ano_referencia"] == 2021].iloc[0]
+    assert row_2021["variacao_nominal_pib_pct"] == 20.0
+    assert row_2021["variacao_nominal_per_capita_pct"] == 20.0
+    assert row_2021["participacao_industria_vab_pct"] == 40.0
+    assert row_2021["participacao_servicos_vab_pct"] == 60.0
+
+
+def test_gold_demografia_sexo_razao_and_zero_division(test_db_path: Path) -> None:
+    """Testa cálculo de razão de sexo demográfica e prevenção de divisão por zero."""
+    from desafio_ibge.loading.storage import (
+        read_gold_demografia_sexo,
+        save_silver_censitario,
+    )
+
+    # 1. Cenário normal de Censo 2022
+    df_cen = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "variavel_id": 93,
+                "variavel_nome": "População residente por sexo",
+                "categoria_classificacao": "Homens",
+                "valor": 200000.0,
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE - Censo 2022",
+                "bronze_indicador": "censo_sexo",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "variavel_id": 93,
+                "variavel_nome": "População residente por sexo",
+                "categoria_classificacao": "Mulheres",
+                "valor": 200000.0,
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE - Censo 2022",
+                "bronze_indicador": "censo_sexo",
+            },
+        ]
+    )
+    save_silver_censitario(df_cen, db_path=test_db_path)
+
+    gold_sexo = read_gold_demografia_sexo(MAUA_IBGE_CODE, db_path=test_db_path)
+    assert len(gold_sexo) == 1
+    row = gold_sexo.iloc[0]
+    assert row["populacao_masculina"] == 200000
+    assert row["populacao_feminina"] == 200000
+    assert row["populacao_total"] == 400000
+    assert row["participacao_masculina_pct"] == 50.0
+    assert row["participacao_feminina_pct"] == 50.0
+    assert row["razao_sexo"] == 100.0
+
+
+def test_gold_resumo_socioeconomico_and_kpis(test_db_path: Path) -> None:
+    """Testa consolidação multitemática da view de resumo e KPIs de alto nível."""
+    from desafio_ibge.loading.storage import (
+        get_kpis_socioeconomicos,
+        read_gold_resumo_socioeconomico,
+        save_all_socioeconomico_silver,
+    )
+
+    dfs = {
+        "populacao": pd.DataFrame(
+            [
+                {
+                    "municipio_id": MAUA_IBGE_CODE,
+                    "ano_referencia": 2022,
+                    "populacao": 418261,
+                    "tipo_populacao": "Censo Demográfico",
+                    "unidade": "Pessoas",
+                    "fonte_oficial": "IBGE - Censo 2022",
+                    "bronze_indicador": "censo_pop",
+                },
+                {
+                    "municipio_id": MAUA_IBGE_CODE,
+                    "ano_referencia": 2026,
+                    "populacao": 429064,
+                    "tipo_populacao": "Estimativa Populacional",
+                    "unidade": "Pessoas",
+                    "fonte_oficial": "IBGE - Estimativas",
+                    "bronze_indicador": "pop_est",
+                },
+            ]
+        ),
+        "pib": pd.DataFrame(
+            [
+                {
+                    "municipio_id": MAUA_IBGE_CODE,
+                    "ano_referencia": 2023,
+                    "indicador_id": 46997,
+                    "indicador_nome": "PIB corrente",
+                    "valor": 25000732.02,
+                    "unidade": "Mil Reais",
+                    "tipo_valor": "Corrente",
+                    "fonte_oficial": "IBGE - PIB",
+                    "bronze_indicador": "pib",
+                },
+                {
+                    "municipio_id": MAUA_IBGE_CODE,
+                    "ano_referencia": 2023,
+                    "indicador_id": 47001,
+                    "indicador_nome": "PIB per capita",
+                    "valor": 59773.04,
+                    "unidade": "Reais",
+                    "tipo_valor": "Per Capita",
+                    "fonte_oficial": "IBGE - PIB",
+                    "bronze_indicador": "pib",
+                },
+            ]
+        ),
+        "censitario": pd.DataFrame(
+            [
+                {
+                    "municipio_id": MAUA_IBGE_CODE,
+                    "ano_referencia": 2022,
+                    "variavel_id": 6318,
+                    "variavel_nome": "Área territorial",
+                    "categoria_classificacao": "Total",
+                    "valor": 61.937,
+                    "unidade": "km²",
+                    "fonte_oficial": "IBGE - Censo 2022",
+                    "bronze_indicador": "censo",
+                },
+                {
+                    "municipio_id": MAUA_IBGE_CODE,
+                    "ano_referencia": 2022,
+                    "variavel_id": 614,
+                    "variavel_nome": "Densidade demográfica",
+                    "categoria_classificacao": "Total",
+                    "valor": 6753.01,
+                    "unidade": "hab/km²",
+                    "fonte_oficial": "IBGE - Censo 2022",
+                    "bronze_indicador": "censo",
+                },
+                {
+                    "municipio_id": MAUA_IBGE_CODE,
+                    "ano_referencia": 2022,
+                    "variavel_id": 2513,
+                    "variavel_nome": "Taxa de alfabetização",
+                    "categoria_classificacao": "Total",
+                    "valor": 96.74,
+                    "unidade": "%",
+                    "fonte_oficial": "IBGE - Censo 2022",
+                    "bronze_indicador": "censo",
+                },
+            ]
+        ),
+    }
+
+    save_all_socioeconomico_silver(dfs, db_path=test_db_path)
+
+    df_resumo = read_gold_resumo_socioeconomico(MAUA_IBGE_CODE, db_path=test_db_path)
+    assert len(df_resumo) >= 6
+    temas = set(df_resumo["tema"])
+    assert "Demografia" in temas
+    assert "Economia" in temas
+    assert "Território" in temas
+    assert "Educação" in temas
+
+    kpis = get_kpis_socioeconomicos(MAUA_IBGE_CODE, db_path=test_db_path)
+    assert kpis["populacao_censo_2022"] == 418261
+    assert kpis["populacao_estimada_recente"] == 429064
+    assert kpis["ano_estimativa_recente"] == 2026
+    assert kpis["pib_corrente_mil_reais"] == 25000732.02
+    assert kpis["pib_per_capita_reais"] == 59773.04
+    assert kpis["area_territorial_km2"] == 61.937
+    assert kpis["taxa_alfabetizacao_pct"] == 96.74
+
+
+def test_gold_read_without_filters(test_db_path: Path) -> None:
+    """Testa execução das leituras da Gold sem filtro de municipio_id."""
+    from desafio_ibge.loading.storage import (
+        read_gold_demografia_sexo,
+        read_gold_pib_historico,
+        read_gold_populacao_historica,
+        read_gold_resumo_socioeconomico,
+    )
+
+    assert read_gold_populacao_historica(None, db_path=test_db_path).empty
+    assert read_gold_pib_historico(None, db_path=test_db_path).empty
+    assert read_gold_demografia_sexo(None, db_path=test_db_path).empty
+    assert read_gold_resumo_socioeconomico(None, db_path=test_db_path).empty
+
+
+# ---------------------------------------------------------------------------
+# Testes de Volumetria e Governança da Arquitetura Medallion
+# ---------------------------------------------------------------------------
+
+
+def test_get_volumetria_medallion_empty_db(test_db_path: Path) -> None:
+    """Verifica que get_volumetria_medallion retorna 0 em banco vazio."""
+    from desafio_ibge.loading.storage import (
+        CATALOGO_OBJETOS_MEDALLION,
+        get_volumetria_medallion,
+        init_db,
+    )
+
+    init_db(db_path=test_db_path)
+    df_vol = get_volumetria_medallion(db_path=test_db_path)
+
+    assert not df_vol.empty
+    assert len(df_vol) == len(CATALOGO_OBJETOS_MEDALLION)
+    assert set(df_vol["total_registros"]) == {0}
+    assert "camada" in df_vol.columns
+    assert "dominio" in df_vol.columns
+    assert "descricao_granularidade" in df_vol.columns
+
+
+def test_get_volumetria_medallion_populated(
+    test_db_path: Path,
+    maua_raw_payload: dict[str, Any],
+) -> None:
+    """Valida volumetria real e discriminação territorial vs socioeconômica."""
+    from desafio_ibge.loading.storage import (
+        get_volumetria_medallion,
+        init_db,
+        save_bronze,
+        save_bronze_socioeconomico,
+        save_silver,
+        save_silver_populacao,
+    )
+
+    init_db(db_path=test_db_path)
+
+    # 1. Territorial
+    save_bronze(
+        maua_raw_payload,
+        endpoint_url="https://api/territorial",
+        db_path=test_db_path,
+    )
+    df_maua = json_to_dataframe(maua_raw_payload)
+    save_silver(df_maua, db_path=test_db_path)
+
+    # 2. Socioeconômico Bronze
+    save_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="censo_pop_area_densidade",
+        periodo_referencia="2022",
+        raw_payload=[{"ano": 2022, "pop": 418261}],
+        endpoint_url="https://api/censo",
+        fonte_oficial="IBGE - Censo 2022",
+        db_path=test_db_path,
+    )
+
+    # 3. Socioeconômico Silver
+    df_pop = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2022,
+                "populacao": 418261,
+                "tipo_populacao": "Censo Demográfico",
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "censo",
+            }
+        ]
+    )
+    save_silver_populacao(df_pop, db_path=test_db_path)
+
+    df_vol = get_volumetria_medallion(db_path=test_db_path)
+
+    # Checagens dinâmicas
+    bronze_raw = df_vol[df_vol["objeto"] == "bronze_ibge_raw"].iloc[0]
+    assert bronze_raw["total_registros"] == 1
+    assert bronze_raw["dominio"] == "Territorial"
+
+    bronze_socio = df_vol[df_vol["objeto"] == "bronze_ibge_socioeconomico"].iloc[0]
+    assert bronze_socio["total_registros"] == 1
+    assert bronze_socio["dominio"] == "Socioeconômico"
+
+    silver_mun = df_vol[df_vol["objeto"] == "silver_municipio"].iloc[0]
+    assert silver_mun["total_registros"] == 1
+    assert silver_mun["dominio"] == "Territorial"
+
+    silver_pop = df_vol[df_vol["objeto"] == "silver_ibge_populacao"].iloc[0]
+    assert silver_pop["total_registros"] == 1
+    assert silver_pop["dominio"] == "Socioeconômico"
+
+    gold_pop = df_vol[df_vol["objeto"] == "gold_populacao_historica"].iloc[0]
+    assert gold_pop["total_registros"] == 1
+    assert gold_pop["dominio"] == "Socioeconômico"
+
+
+def test_get_metadados_governanca(test_db_path: Path) -> None:
+    """Verifica agregação dinâmica de períodos históricos e contagens de indicadores."""
+    from desafio_ibge.loading.storage import (
+        get_metadados_governanca,
+        init_db,
+        save_silver_pib,
+        save_silver_populacao,
+    )
+
+    init_db(db_path=test_db_path)
+
+    # Vazio
+    meta_empty = get_metadados_governanca(db_path=test_db_path)
+    assert meta_empty["populacao_min_ano"] is None
+    assert meta_empty["pib_total_anos"] == 0
+
+    # Popula dados de teste
+    df_pop = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2010,
+                "populacao": 400000,
+                "tipo_populacao": "Censo",
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "censo",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2020,
+                "populacao": 450000,
+                "tipo_populacao": "Estimativa",
+                "unidade": "Pessoas",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "estimativa",
+            },
+        ]
+    )
+    save_silver_populacao(df_pop, db_path=test_db_path)
+
+    df_pib = pd.DataFrame(
+        [
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2015,
+                "indicador_id": 46997,
+                "indicador_nome": "PIB corrente",
+                "valor": 1000000.0,
+                "unidade": "Mil Reais",
+                "tipo_valor": "Corrente",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pib",
+            },
+            {
+                "municipio_id": MAUA_IBGE_CODE,
+                "ano_referencia": 2018,
+                "indicador_id": 47001,
+                "indicador_nome": "PIB per capita",
+                "valor": 30000.0,
+                "unidade": "Reais",
+                "tipo_valor": "Per Capita",
+                "fonte_oficial": "IBGE",
+                "bronze_indicador": "pib",
+            },
+        ]
+    )
+    save_silver_pib(df_pib, db_path=test_db_path)
+
+    meta = get_metadados_governanca(db_path=test_db_path)
+    assert meta["populacao_min_ano"] == 2010
+    assert meta["populacao_max_ano"] == 2020
+    assert meta["populacao_total_anos"] == 2
+
+    assert meta["pib_min_ano"] == 2015
+    assert meta["pib_max_ano"] == 2018
+    assert meta["pib_total_anos"] == 2
+    assert meta["pib_total_indicadores"] == 2
+    assert meta["total_silver"] == 4

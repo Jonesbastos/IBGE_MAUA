@@ -188,3 +188,382 @@ def test_sanitize_column_names_utility() -> None:
     cols = pd.Index(["id", "regiao-imediata_ID", "MICRORREGIAO-NOME"])
     sanitized = sanitize_column_names(cols)
     assert sanitized == ["id", "regiao_imediata_id", "microrregiao_nome"]
+
+
+# ---------------------------------------------------------------------------
+# Testes dos Contratos Pydantic v2 e Transformações Silver Socioeconômicas
+# ---------------------------------------------------------------------------
+
+
+def test_populacao_silver_schema_valid() -> None:
+    """Testa validação bem-sucedida de contrato de População Silver."""
+    from desafio_ibge.validation.schema import validate_populacao_record
+
+    valid_data = {
+        "municipio_id": 3529401,
+        "ano_referencia": 2022,
+        "populacao": 418261,
+        "tipo_populacao": "Censo Demográfico",
+        "unidade": "Pessoas",
+        "fonte_oficial": "IBGE - Censo Demográfico 2022",
+        "bronze_indicador": "censo_pop_area_densidade",
+    }
+    model = validate_populacao_record(valid_data)
+    assert model.municipio_id == 3529401
+    assert model.populacao == 418261
+    assert model.tipo_populacao == "Censo Demográfico"
+
+
+@pytest.mark.parametrize("invalid_id", [12345, 123456, 12345678, "texto"])
+def test_populacao_silver_schema_invalid_ibge_id(invalid_id: Any) -> None:
+    """Rejeita códigos de município que não tenham 7 dígitos numéricos."""
+    from desafio_ibge.validation.schema import (
+        IBGEValidationError,
+        validate_populacao_record,
+    )
+
+    data = {
+        "municipio_id": invalid_id,
+        "ano_referencia": 2022,
+        "populacao": 418261,
+        "tipo_populacao": "Censo Demográfico",
+        "unidade": "Pessoas",
+        "fonte_oficial": "IBGE",
+        "bronze_indicador": "censo",
+    }
+    with pytest.raises(IBGEValidationError):
+        validate_populacao_record(data)
+
+
+@pytest.mark.parametrize("invalid_pop", [0, -100])
+def test_populacao_silver_schema_invalid_populacao(invalid_pop: int) -> None:
+    """Rejeita contagens populacionais menores ou iguais a zero."""
+    from desafio_ibge.validation.schema import (
+        IBGEValidationError,
+        validate_populacao_record,
+    )
+
+    data = {
+        "municipio_id": 3529401,
+        "ano_referencia": 2022,
+        "populacao": invalid_pop,
+        "tipo_populacao": "Censo Demográfico",
+        "unidade": "Pessoas",
+        "fonte_oficial": "IBGE",
+        "bronze_indicador": "censo",
+    }
+    with pytest.raises(IBGEValidationError):
+        validate_populacao_record(data)
+
+
+def test_pib_silver_schema_valid() -> None:
+    """Testa validação do contrato de PIB Silver com valores finitos."""
+    from desafio_ibge.validation.schema import validate_pib_record
+
+    valid_data = {
+        "municipio_id": 3529401,
+        "ano_referencia": 2023,
+        "indicador_id": 46997,
+        "indicador_nome": "Produto Interno Bruto a preços correntes",
+        "valor": 25000732.02,
+        "unidade": "Mil Reais",
+        "tipo_valor": "Corrente",
+        "fonte_oficial": "IBGE - Produto Interno Bruto dos Municípios",
+        "bronze_indicador": "pib_municipal_historico",
+    }
+    model = validate_pib_record(valid_data)
+    assert model.indicador_id == 46997
+    assert model.valor == 25000732.02
+
+
+@pytest.mark.parametrize("invalid_val", [float("nan"), float("inf"), float("-inf")])
+def test_pib_silver_schema_rejects_nan_inf(invalid_val: float) -> None:
+    """Garante que NaN e Infinito são expressamente rejeitados na validação."""
+    from desafio_ibge.validation.schema import (
+        IBGEValidationError,
+        validate_pib_record,
+    )
+
+    data = {
+        "municipio_id": 3529401,
+        "ano_referencia": 2023,
+        "indicador_id": 46997,
+        "indicador_nome": "PIB",
+        "valor": invalid_val,
+        "unidade": "Mil Reais",
+        "tipo_valor": "Corrente",
+        "fonte_oficial": "IBGE",
+        "bronze_indicador": "pib",
+    }
+    with pytest.raises(IBGEValidationError):
+        validate_pib_record(data)
+
+
+def test_censitario_silver_schema_valid() -> None:
+    """Testa contrato de dados censitários detalhados."""
+    from desafio_ibge.validation.schema import validate_censitario_record
+
+    valid_data = {
+        "municipio_id": 3529401,
+        "ano_referencia": 2022,
+        "variavel_id": 6318,
+        "variavel_nome": "Área territorial",
+        "categoria_classificacao": "Total",
+        "valor": 61.937,
+        "unidade": "km²",
+        "fonte_oficial": "IBGE - Censo Demográfico 2022",
+        "bronze_indicador": "censo_pop_area_densidade",
+    }
+    model = validate_censitario_record(valid_data)
+    assert model.variavel_id == 6318
+    assert model.valor == 61.937
+
+
+def test_transform_bronze_populacao() -> None:
+    """Testa normalização tabular de Censo e Estimativas filtrando valores inválidos."""
+    from desafio_ibge.transformation.normalizer import transform_bronze_populacao
+
+    mock_records = [
+        {
+            "indicador": "censo_pop_area_densidade",
+            "payload": [
+                {
+                    "id": "93",
+                    "variavel": "População residente",
+                    "unidade": "Pessoas",
+                    "resultados": [
+                        {
+                            "series": [
+                                {
+                                    "localidade": {"id": "3529401"},
+                                    "serie": {"2022": "418261"},
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ],
+        },
+        {
+            "indicador": "populacao_estimada_historica",
+            "payload": [
+                {
+                    "id": "9324",
+                    "variavel": "População residente estimada",
+                    "unidade": "Pessoas",
+                    "resultados": [
+                        {
+                            "series": [
+                                {
+                                    "localidade": {"id": "3529401"},
+                                    "serie": {
+                                        "2020": "415000",
+                                        "2021": "-",
+                                        "2026": "...",
+                                    },
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ],
+        },
+    ]
+
+    df = transform_bronze_populacao(mock_records, validate=True)
+    assert len(df) == 2  # 2022 (censo) e 2020 (estimativa); "-", "..." ignorados
+    assert set(df["ano_referencia"]) == {2020, 2022}
+    assert (
+        df.loc[df["ano_referencia"] == 2022, "tipo_populacao"].iloc[0]
+        == "Censo Demográfico"
+    )
+    assert (
+        df.loc[df["ano_referencia"] == 2020, "tipo_populacao"].iloc[0]
+        == "Estimativa Populacional"
+    )
+
+
+def test_transform_bronze_pib_pesquisa38() -> None:
+    """Testa normalização do PIB desaninhando múltiplos anos e omitindo nulos."""
+    from desafio_ibge.transformation.normalizer import transform_bronze_pib
+
+    mock_pib_record = {
+        "indicador": "pib_municipal_historico",
+        "municipio_id": 3529401,
+        "payload": [
+            {
+                "id": 46997,
+                "indicador": "Produto Interno Bruto a preços correntes",
+                "res": [
+                    {
+                        "localidade": "352940",
+                        "res": {
+                            "2021": "20776212.74",
+                            "2022": "24111460.53",
+                            "2023": None,  # Não deve ser imputado como 0
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    df = transform_bronze_pib(mock_pib_record, validate=True)
+    assert len(df) == 2
+    assert set(df["ano_referencia"]) == {2021, 2022}
+    assert df["valor"].iloc[0] > 0
+    assert df["unidade"].iloc[0] == "Mil Reais"
+    assert df["tipo_valor"].iloc[0] == "Corrente"
+
+
+def test_transform_bronze_censitario() -> None:
+    """Testa normalização de variáveis censitárias com categorias estratificadas."""
+    from desafio_ibge.transformation.normalizer import transform_bronze_censitario
+
+    mock_censitario_records = [
+        {
+            "indicador": "censo_pop_area_densidade",
+            "payload": [
+                {
+                    "id": "6318",
+                    "variavel": "Área territorial",
+                    "unidade": "km²",
+                    "resultados": [
+                        {
+                            "series": [
+                                {
+                                    "localidade": {"id": "3529401"},
+                                    "serie": {"2022": "61.937"},
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ],
+        },
+        {
+            "indicador": "censo_sexo",
+            "payload": [
+                {
+                    "id": "93",
+                    "variavel": "População residente",
+                    "unidade": "Pessoas",
+                    "resultados": [
+                        {
+                            "classificacoes": [{"categoria": {"4": "Homens"}}],
+                            "series": [
+                                {
+                                    "localidade": {"id": "3529401"},
+                                    "serie": {"2022": "201348"},
+                                }
+                            ],
+                        },
+                        {
+                            "classificacoes": [{"categoria": {"5": "Mulheres"}}],
+                            "series": [
+                                {
+                                    "localidade": {"id": "3529401"},
+                                    "serie": {"2022": "216913"},
+                                }
+                            ],
+                        },
+                    ],
+                }
+            ],
+        },
+    ]
+
+    df = transform_bronze_censitario(mock_censitario_records, validate=True)
+    assert len(df) == 3
+    assert set(df["categoria_classificacao"]) == {"Total", "Homens", "Mulheres"}
+    assert "Área territorial" in df["variavel_nome"].values
+    assert "População residente por sexo" in df["variavel_nome"].values
+
+
+def test_transform_bronze_empty_payloads() -> None:
+    """Testa robustez de funções de transformação com payloads nulos ou vazios."""
+    from desafio_ibge.transformation.normalizer import (
+        transform_bronze_censitario,
+        transform_bronze_pib,
+        transform_bronze_populacao,
+    )
+
+    df_pop = transform_bronze_populacao([])
+    assert df_pop.empty
+    assert list(df_pop.columns) == [
+        "municipio_id",
+        "ano_referencia",
+        "populacao",
+        "tipo_populacao",
+        "unidade",
+        "fonte_oficial",
+        "bronze_indicador",
+    ]
+
+    df_pib = transform_bronze_pib({"payload": None})
+    assert df_pib.empty
+
+    df_cen = transform_bronze_censitario([{"payload": {}}])
+    assert df_cen.empty
+
+
+def test_transform_socioeconomico_from_bronze_integration(tmp_path: Any) -> None:
+    """Testa leitura da camada Bronze do SQLite e transformação integrada."""
+    from desafio_ibge.loading.storage import save_bronze_socioeconomico
+    from desafio_ibge.transformation.normalizer import (
+        transform_socioeconomico_from_bronze,
+    )
+
+    db_test = tmp_path / "test_socio.db"
+
+    # Injeta mock na bronze
+    save_bronze_socioeconomico(
+        municipio_id=MAUA_IBGE_CODE,
+        indicador="censo_pop_area_densidade",
+        periodo_referencia="2022",
+        fonte_oficial="IBGE",
+        endpoint_url="http://test",
+        raw_payload=[
+            {
+                "id": "93",
+                "variavel": "População",
+                "unidade": "Pessoas",
+                "resultados": [
+                    {
+                        "series": [
+                            {
+                                "localidade": {"id": str(MAUA_IBGE_CODE)},
+                                "serie": {"2022": "418261"},
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+        db_path=db_test,
+    )
+
+    res = transform_socioeconomico_from_bronze(db_path=db_test, validate=True)
+    assert "populacao" in res
+    assert "pib" in res
+    assert "censitario" in res
+    assert len(res["populacao"]) == 1
+
+
+def test_validation_error_exceptions() -> None:
+    """Testa que schemas Silver levantam IBGEValidationError em dados inválidos."""
+    from desafio_ibge.validation.schema import (
+        IBGEValidationError,
+        validate_censitario_record,
+        validate_pib_record,
+        validate_populacao_record,
+    )
+
+    with pytest.raises(IBGEValidationError):
+        validate_populacao_record({"municipio_id": "invalido"})
+
+    with pytest.raises(IBGEValidationError):
+        validate_pib_record({"municipio_id": 3529401, "valor": "invalido"})
+
+    with pytest.raises(IBGEValidationError):
+        validate_censitario_record({"municipio_id": 3529401, "variavel_id": "txt"})

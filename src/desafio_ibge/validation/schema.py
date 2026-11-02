@@ -173,3 +173,211 @@ def validate_maua_payload(data: dict[str, Any]) -> MunicipioSchema:
         MunicipioSchema com os dados validados.
     """
     return validate_municipio_payload(data, expected_id=MAUA_IBGE_CODE)
+
+
+# ---------------------------------------------------------------------------
+# Contratos Pydantic v2 para as Tabelas Silver Socioeconômicas
+# ---------------------------------------------------------------------------
+
+
+class PopulacaoSilverSchema(BaseModel):
+    """Contrato de dados para registros de população da camada Silver.
+
+    Cobre tanto contagens censitárias (Censo 2022) quanto estimativas anuais.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    municipio_id: int = Field(..., description="Código IBGE de 7 dígitos")
+    ano_referencia: int = Field(
+        ..., ge=1900, le=2100, description="Ano de referência da contagem"
+    )
+    populacao: int = Field(
+        ..., gt=0, description="População residente apurada ou estimada"
+    )
+    tipo_populacao: str = Field(
+        ...,
+        min_length=1,
+        description="Metodologia: 'Censo Demográfico' ou 'Estimativa Populacional'",
+    )
+    unidade: str = Field(default="Pessoas", min_length=1)
+    fonte_oficial: str = Field(..., min_length=1, description="Fonte oficial do IBGE")
+    bronze_indicador: str = Field(
+        ..., min_length=1, description="Identificador do indicador na Bronze"
+    )
+
+    @field_validator("municipio_id")
+    @classmethod
+    def validate_municipio_id(cls, value: int) -> int:
+        """Garante código IBGE de 7 dígitos numéricos."""
+        str_val = str(value)
+        if len(str_val) != 7 or not str_val.isdigit():
+            msg = f"Código municipal deve ter exatamente 7 dígitos: {value}"
+            logger.error(msg)
+            raise ValueError(msg)
+        return value
+
+
+class PIBSilverSchema(BaseModel):
+    """Contrato de dados para séries de PIB e VAB setorial da camada Silver."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    municipio_id: int = Field(..., description="Código IBGE de 7 dígitos")
+    ano_referencia: int = Field(
+        ..., ge=1900, le=2100, description="Ano de referência econômico"
+    )
+    indicador_id: int = Field(
+        ..., gt=0, description="Identificador numérico do indicador no IBGE"
+    )
+    indicador_nome: str = Field(
+        ..., min_length=1, description="Descrição padronizada do indicador"
+    )
+    valor: float = Field(..., description="Valor numérico do indicador econômico")
+    unidade: str = Field(..., min_length=1, description="Unidade monetária de medida")
+    tipo_valor: str = Field(
+        ..., min_length=1, description="Tipo do valor: 'Corrente' ou 'Per Capita'"
+    )
+    fonte_oficial: str = Field(
+        default="IBGE - Produto Interno Bruto dos Municípios",
+        min_length=1,
+    )
+    bronze_indicador: str = Field(
+        default="pib_municipal_historico",
+        min_length=1,
+    )
+
+    @field_validator("municipio_id")
+    @classmethod
+    def validate_municipio_id(cls, value: int) -> int:
+        """Garante código IBGE de 7 dígitos numéricos."""
+        str_val = str(value)
+        if len(str_val) != 7 or not str_val.isdigit():
+            msg = f"Código municipal deve ter exatamente 7 dígitos: {value}"
+            logger.error(msg)
+            raise ValueError(msg)
+        return value
+
+    @field_validator("valor")
+    @classmethod
+    def validate_valor_finito(cls, value: float) -> float:
+        """Assegura que o valor é um número real finito (não NaN nem Infinito)."""
+        import math
+
+        if math.isnan(value) or math.isinf(value):
+            msg = f"Valor econômico não pode ser NaN ou Infinito: {value}"
+            logger.error(msg)
+            raise ValueError(msg)
+        return value
+
+
+class CensitarioSilverSchema(BaseModel):
+    """Contrato de dados para atributos censitários detalhados da camada Silver."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    municipio_id: int = Field(..., description="Código IBGE de 7 dígitos")
+    ano_referencia: int = Field(
+        ..., ge=1900, le=2100, description="Ano de referência censitário"
+    )
+    variavel_id: int = Field(
+        ..., gt=0, description="Identificador da variável no SIDRA"
+    )
+    variavel_nome: str = Field(
+        ..., min_length=1, description="Nome oficial da variável apurada"
+    )
+    categoria_classificacao: str = Field(
+        default="Total",
+        min_length=1,
+        description="Categoria demográfica (ex: 'Total', 'Homens', 'Mulheres')",
+    )
+    valor: float = Field(..., description="Valor medido apurado")
+    unidade: str = Field(..., min_length=1, description="Unidade de medida")
+    fonte_oficial: str = Field(
+        default="IBGE - Censo Demográfico 2022",
+        min_length=1,
+    )
+    bronze_indicador: str = Field(..., min_length=1)
+
+    @field_validator("municipio_id")
+    @classmethod
+    def validate_municipio_id(cls, value: int) -> int:
+        """Garante código IBGE de 7 dígitos numéricos."""
+        str_val = str(value)
+        if len(str_val) != 7 or not str_val.isdigit():
+            msg = f"Código municipal deve ter exatamente 7 dígitos: {value}"
+            logger.error(msg)
+            raise ValueError(msg)
+        return value
+
+    @field_validator("valor")
+    @classmethod
+    def validate_valor_finito(cls, value: float) -> float:
+        """Assegura que o valor é um número real finito."""
+        import math
+
+        if math.isnan(value) or math.isinf(value):
+            msg = f"Valor censitário não pode ser NaN ou Infinito: {value}"
+            logger.error(msg)
+            raise ValueError(msg)
+        return value
+
+
+def validate_populacao_record(data: dict[str, Any]) -> PopulacaoSilverSchema:
+    """Valida um registro tabular de população antes da inserção na Silver.
+
+    Args:
+        data: Dicionário contendo os campos do schema de população.
+
+    Returns:
+        Instância validada de PopulacaoSilverSchema.
+
+    Raises:
+        IBGEValidationError: Se violar os contratos de schema ou tipagem.
+    """
+    try:
+        return PopulacaoSilverSchema.model_validate(data)
+    except ValidationError as exc:
+        msg = f"Falha de validação no contrato de População Silver: {exc}"
+        logger.error(msg)
+        raise IBGEValidationError(msg) from exc
+
+
+def validate_pib_record(data: dict[str, Any]) -> PIBSilverSchema:
+    """Valida um registro tabular econômico de PIB antes da inserção na Silver.
+
+    Args:
+        data: Dicionário contendo os campos do schema de PIB.
+
+    Returns:
+        Instância validada de PIBSilverSchema.
+
+    Raises:
+        IBGEValidationError: Se violar os contratos de schema ou tipagem.
+    """
+    try:
+        return PIBSilverSchema.model_validate(data)
+    except ValidationError as exc:
+        msg = f"Falha de validação no contrato de PIB Silver: {exc}"
+        logger.error(msg)
+        raise IBGEValidationError(msg) from exc
+
+
+def validate_censitario_record(data: dict[str, Any]) -> CensitarioSilverSchema:
+    """Valida um registro tabular de atributos censitários antes da inserção na Silver.
+
+    Args:
+        data: Dicionário contendo os campos do schema censitário.
+
+    Returns:
+        Instância validada de CensitarioSilverSchema.
+
+    Raises:
+        IBGEValidationError: Se violar os contratos de schema ou tipagem.
+    """
+    try:
+        return CensitarioSilverSchema.model_validate(data)
+    except ValidationError as exc:
+        msg = f"Falha de validação no contrato Censitário Silver: {exc}"
+        logger.error(msg)
+        raise IBGEValidationError(msg) from exc

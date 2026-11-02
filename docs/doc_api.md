@@ -404,6 +404,75 @@ Para enriquecer a dimensão geográfica de Mauá com métricas e fatos analític
 
 ---
 
-## 10. Conclusão e Próximos Passos na Arquitetura de Dados
+## 10. Fontes Oficiais Complementares: Indicadores Socioeconômicos (FASE 10)
 
-A API de Localidades do IBGE para o município de Mauá (`3529401`) constitui a **tabela de dimensão territorial** base do projeto. A documentação acima formaliza os contratos de dados, esquemas de transformação e garantias de qualidade exigidas para a ingestão confiável na camada `Bronze` e subsequente enriquecimento para as camadas `Silver` e `Gold`.
+Para enriquecer a dimensão territorial primária de Mauá (`3529401`) com dados demográficos e econômicos oficiais, são integradas as APIs de **Agregados (SIDRA v3)** e **Pesquisas do IBGE**.
+
+### 10.1. Matriz Canônica de Indicadores Oficiais de Mauá (SP)
+
+| Indicador | Fonte Oficial IBGE | Endpoint / Agregado | Variável / Parâmetros | Unidade | Períodos Reais | Periodicidade |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **População Residente** | Censo Demográfico 2022 | `api/v3/agregados/4714` | Var `93` (`localidades=N6[3529401]`) | Pessoas | `2022` (418.261 hab) | Decenal |
+| **Área Territorial** | Censo Demográfico 2022 | `api/v3/agregados/4714` | Var `6318` (`localidades=N6[3529401]`) | $km^2$ | `2022` (61,937 $km^2$) | Decenal |
+| **Densidade Demográfica** | Censo Demográfico 2022 | `api/v3/agregados/4714` | Var `614` (`localidades=N6[3529401]`) | hab/$km^2$ | `2022` (6.753,01 hab/$km^2$) | Decenal |
+| **Evolução Populacional** | Estimativas de População | `api/v3/agregados/6579` | Var `9324` (`periodos=all`) | Pessoas | `2001` a `2026` (22 períodos) | Anual |
+| **PIB a Preços Correntes** | PIB dos Municípios | `api/v1/pesquisas/38` ou Agg `5938` | Ind `46997` / Var `37` (`periodos=all`) | Mil Reais | `2002` a `2023` (22 períodos) | Anual (Defasagem 2 anos) |
+| **PIB per capita** | PIB dos Municípios | `api/v1/pesquisas/38` | Ind `47001` (`periodos=all`) | Reais | `2002` a `2023` (2023: R$ 59.773,04) | Anual |
+| **Taxa de Alfabetização** | Censo Demográfico 2022 | `api/v3/agregados/9543` | Var `2513` (`periodos=2022`) | % | `2022` (96,74%) | Decenal |
+| **População por Sexo** | Censo Demográfico 2022 | `api/v3/agregados/9514` | Var `93` (`classificacao=2[4,5]|287[100362]`) | Pessoas | `2022` (Homens: 201.348, Mulheres: 216.913) | Decenal |
+
+---
+
+### 10.2. Detalhamento Técnico das Requisições HTTP
+
+#### 1. Censo Demográfico 2022 — População, Área e Densidade (Agregado 4714)
+- **URL**: `https://servicodados.ibge.gov.br/api/v3/agregados/4714/periodos/2022/variaveis/93|6318|614?localidades=N6[3529401]`
+- **Método**: `GET`
+- **Valores Homologados**:
+  - População Residente: `418.261` pessoas
+  - Área Territorial: `61.937` $km^2$
+  - Densidade Demográfica: `6753.01` hab/$km^2$
+
+#### 2. Estimativas Anuais de População (Agregado 6579)
+- **URL**: `https://servicodados.ibge.gov.br/api/v3/agregados/6579/periodos/all/variaveis/9324?localidades=N6[3529401]`
+- **Método**: `GET`
+- **Série Temporal**: 2001 a 2026 (22 registros anuais). Permite análise de crescimento demográfico no período intercensitário.
+
+#### 3. Produto Interno Bruto (PIB) e PIB per capita (Pesquisa 38 / Agregado 5938)
+- **URL Principal (Pesquisa 38)**: `https://servicodados.ibge.gov.br/api/v1/pesquisas/38/resultados/3529401`
+- **URL Alternativa (SIDRA 5938)**: `https://servicodados.ibge.gov.br/api/v3/agregados/5938/periodos/all/variaveis/37?localidades=N6[3529401]`
+- **Série Temporal**: 2002 a 2023 (anual).
+- **Valores Homologados de Mauá em 2023**:
+  - PIB Total: R$ 25.000.732,02 mil (R$ ~25 bilhões)
+  - PIB per capita: R$ 59.773,04
+
+#### 4. Alfabetização de Pessoas de 15 Anos ou Mais (Agregado 9543)
+- **URL**: `https://servicodados.ibge.gov.br/api/v3/agregados/9543/periodos/2022/variaveis/2513?localidades=N6[3529401]`
+- **Método**: `GET`
+- **Valor Homologado**: Taxa de Alfabetização de Mauá em 2022: `96.74%`.
+
+#### 5. População por Sexo e Faixa Etária (Agregado 9514)
+- **URL**: `https://servicodados.ibge.gov.br/api/v3/agregados/9514/periodos/2022/variaveis/93?localidades=N6[3529401]&classificacao=2[4,5]|287[100362]`
+- **Método**: `GET`
+- **Valores Homologados**:
+  - Categoria 4 (Homens): `201.348`
+  - Categoria 5 (Mulheres): `216.913`
+  - Total: `418.261`
+
+---
+
+### 10.3. Governança Temporal e Restrições Metodológicas
+
+> [!WARNING] Regra de Ouro da Governança Temporal
+> As pesquisas do IBGE possuem naturezas estatísticas e cronogramas de publicação distintos:
+> 1. **Censo Demográfico (2022)**: Operação censitária exaustiva decenal.
+> 2. **Contas Regionais do PIB (2002-2023)**: Publicação com defasagem estrutural de aproximadamente 2 anos em relação ao ano corrente.
+> 3. **Estimativas de População (2001-2026)**: Modelagem matemática anual para fins legais e orçamentários.
+>
+> **É estritamente vedado correlacionar métricas de períodos distintos como se fossem do mesmo ano de referência.** Todo registro normalizado na camada Silver e analítico na camada Gold deve explicitar seu respectivo `ano_referencia` e `fonte_pesquisa`.
+
+---
+
+## 11. Conclusão
+
+A integração das APIs de Localidades, Agregados (v3) e Pesquisas do IBGE assegura conformidade integral com dados públicos auditáveis, eliminando qualquer risco de valores sintéticos ou inventados na arquitetura Medalhão.

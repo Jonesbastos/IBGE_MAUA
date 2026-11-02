@@ -59,6 +59,23 @@ CREATE TABLE IF NOT EXISTS bronze_ibge_raw (
 );
 """
 
+# DDL da Camada Bronze Socioeconômica (JSON bruto de indicadores e séries históricas)
+DDL_BRONZE_SOCIOECONOMICO = """
+CREATE TABLE IF NOT EXISTS bronze_ibge_socioeconomico (
+    municipio_id INTEGER NOT NULL,
+    indicador TEXT NOT NULL,
+    periodo_referencia TEXT NOT NULL,
+    fonte_oficial TEXT NOT NULL,
+    endpoint_url TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    checksum_sha256 TEXT NOT NULL,
+    http_status INTEGER NOT NULL,
+    ingestion_timestamp TEXT NOT NULL,
+    PRIMARY KEY (municipio_id, indicador, periodo_referencia)
+);
+"""
+
+
 # DDL da Camada Silver (dados relacionais higienizados em snake_case com restrições)
 DDL_SILVER_MUNICIPIO = """
 CREATE TABLE IF NOT EXISTS silver_municipio (
@@ -87,6 +104,56 @@ CREATE TABLE IF NOT EXISTS silver_municipio (
     transformed_at TEXT NOT NULL
 );
 """
+
+# DDL da Camada Silver: Contagens e Estimativas Populacionais Históricas
+DDL_SILVER_IBGE_POPULACAO = """
+CREATE TABLE IF NOT EXISTS silver_ibge_populacao (
+    municipio_id INTEGER NOT NULL,
+    ano_referencia INTEGER NOT NULL,
+    populacao INTEGER NOT NULL,
+    tipo_populacao TEXT NOT NULL,
+    unidade TEXT NOT NULL,
+    fonte_oficial TEXT NOT NULL,
+    bronze_indicador TEXT NOT NULL,
+    transformed_at TEXT NOT NULL,
+    PRIMARY KEY (municipio_id, ano_referencia, tipo_populacao)
+);
+"""
+
+# DDL da Camada Silver: PIB Municipal e VAB Setorial
+DDL_SILVER_IBGE_PIB = """
+CREATE TABLE IF NOT EXISTS silver_ibge_pib (
+    municipio_id INTEGER NOT NULL,
+    ano_referencia INTEGER NOT NULL,
+    indicador_id INTEGER NOT NULL,
+    indicador_nome TEXT NOT NULL,
+    valor REAL NOT NULL,
+    unidade TEXT NOT NULL,
+    tipo_valor TEXT NOT NULL,
+    fonte_oficial TEXT NOT NULL,
+    bronze_indicador TEXT NOT NULL,
+    transformed_at TEXT NOT NULL,
+    PRIMARY KEY (municipio_id, ano_referencia, indicador_id)
+);
+"""
+
+# DDL da Camada Silver: Dados Censitários Detalhados
+DDL_SILVER_IBGE_CENSITARIO = """
+CREATE TABLE IF NOT EXISTS silver_ibge_censitario (
+    municipio_id INTEGER NOT NULL,
+    ano_referencia INTEGER NOT NULL,
+    variavel_id INTEGER NOT NULL,
+    variavel_nome TEXT NOT NULL,
+    categoria_classificacao TEXT NOT NULL,
+    valor REAL NOT NULL,
+    unidade TEXT NOT NULL,
+    fonte_oficial TEXT NOT NULL,
+    bronze_indicador TEXT NOT NULL,
+    transformed_at TEXT NOT NULL,
+    PRIMARY KEY (municipio_id, ano_referencia, variavel_id, categoria_classificacao)
+);
+"""
+
 
 # DDL da Camada Gold: View Analítica de Hierarquia Geográfica
 DDL_DROP_GOLD_HIERARQUIA = "DROP VIEW IF EXISTS gold_vw_municipio_hierarquia;"
@@ -224,6 +291,337 @@ FROM silver_municipio s
 WHERE s.id NOT IN (SELECT ibge_id FROM bronze_ibge_raw);
 """
 
+# DDL da Camada Gold: População Histórica e Variações Metodológicas
+DDL_DROP_GOLD_POPULACAO_HISTORICA = "DROP VIEW IF EXISTS gold_populacao_historica;"
+DDL_GOLD_POPULACAO_HISTORICA = """
+CREATE VIEW IF NOT EXISTS gold_populacao_historica AS
+WITH pop_base AS (
+    SELECT
+        p.municipio_id,
+        m.nome AS municipio_nome,
+        p.ano_referencia,
+        p.populacao,
+        p.tipo_populacao,
+        p.unidade,
+        p.fonte_oficial,
+        LAG(p.ano_referencia) OVER (
+            PARTITION BY p.municipio_id, p.tipo_populacao
+            ORDER BY p.ano_referencia
+        ) AS ano_anterior,
+        LAG(p.populacao) OVER (
+            PARTITION BY p.municipio_id, p.tipo_populacao
+            ORDER BY p.ano_referencia
+        ) AS pop_anterior
+    FROM silver_ibge_populacao p
+    LEFT JOIN silver_municipio m ON p.municipio_id = m.id
+)
+SELECT
+    municipio_id,
+    municipio_nome,
+    ano_referencia,
+    populacao,
+    tipo_populacao,
+    unidade,
+    CASE
+        WHEN pop_anterior IS NOT NULL THEN (populacao - pop_anterior)
+        ELSE NULL
+    END AS variacao_absoluta_anterior,
+    CASE
+        WHEN pop_anterior IS NOT NULL THEN
+            ROUND(((populacao - pop_anterior) * 100.0) / NULLIF(pop_anterior, 0), 2)
+        ELSE NULL
+    END AS variacao_percentual_anterior,
+    CASE
+        WHEN ano_anterior IS NULL THEN NULL
+        WHEN (ano_referencia - ano_anterior) = 1 THEN 1
+        ELSE 0
+    END AS flag_anos_consecutivos,
+    fonte_oficial
+FROM pop_base;
+"""
+
+# DDL da Camada Gold: PIB Municipal Histórico, Per Capita e VAB Setorial
+DDL_DROP_GOLD_PIB_HISTORICO = "DROP VIEW IF EXISTS gold_pib_historico;"
+DDL_GOLD_PIB_HISTORICO = """
+CREATE VIEW IF NOT EXISTS gold_pib_historico AS
+WITH pib_pivot AS (
+    SELECT
+        p.municipio_id,
+        m.nome AS municipio_nome,
+        p.ano_referencia,
+        COALESCE(
+            MAX(CASE WHEN p.indicador_id = 46997 THEN p.valor END),
+            MAX(CASE WHEN p.indicador_id = 46998 THEN p.valor END)
+        ) AS pib_corrente_mil_reais,
+        MAX(CASE WHEN p.indicador_id = 47001 THEN p.valor END) AS pib_per_capita_reais,
+        COALESCE(
+            MAX(CASE WHEN p.indicador_id = 47006 THEN p.valor END),
+            MAX(CASE WHEN p.indicador_id = 47010 THEN p.valor END)
+        ) AS vab_agropecuaria_mil_reais,
+        COALESCE(
+            MAX(CASE WHEN p.indicador_id = 47007 THEN p.valor END),
+            MAX(CASE WHEN p.indicador_id = 47012 THEN p.valor END)
+        ) AS vab_industria_mil_reais,
+        COALESCE(
+            MAX(CASE WHEN p.indicador_id = 47008 THEN p.valor END),
+            MAX(CASE WHEN p.indicador_id = 47013 THEN p.valor END)
+        ) AS vab_servicos_mil_reais,
+        COALESCE(
+            MAX(CASE WHEN p.indicador_id = 47009 THEN p.valor END),
+            MAX(CASE WHEN p.indicador_id = 47014 THEN p.valor END)
+        ) AS vab_administracao_publica_mil_reais,
+        COALESCE(
+            MAX(CASE WHEN p.indicador_id = 47004 THEN p.valor END),
+            MAX(CASE WHEN p.indicador_id = 47015 THEN p.valor END)
+        ) AS vab_total_mil_reais,
+        COALESCE(
+            MAX(CASE WHEN p.indicador_id = 47022 THEN p.valor END),
+            MAX(CASE WHEN p.indicador_id = 47023 THEN p.valor END)
+        ) AS impostos_mil_reais,
+        'IBGE - Produto Interno Bruto dos Municípios' AS fonte_oficial
+    FROM silver_ibge_pib p
+    LEFT JOIN silver_municipio m ON p.municipio_id = m.id
+    GROUP BY p.municipio_id, m.nome, p.ano_referencia
+),
+pib_lag AS (
+    SELECT
+        *,
+        LAG(pib_corrente_mil_reais) OVER (
+            PARTITION BY municipio_id ORDER BY ano_referencia
+        ) AS pib_anterior,
+        LAG(pib_per_capita_reais) OVER (
+            PARTITION BY municipio_id ORDER BY ano_referencia
+        ) AS pib_per_capita_anterior,
+        LAG(ano_referencia) OVER (
+            PARTITION BY municipio_id ORDER BY ano_referencia
+        ) AS ano_anterior
+    FROM pib_pivot
+)
+SELECT
+    municipio_id,
+    municipio_nome,
+    ano_referencia,
+    pib_corrente_mil_reais,
+    pib_per_capita_reais,
+    vab_agropecuaria_mil_reais,
+    vab_industria_mil_reais,
+    vab_servicos_mil_reais,
+    vab_administracao_publica_mil_reais,
+    vab_total_mil_reais,
+    impostos_mil_reais,
+    'Mil Reais' AS unidade_pib,
+    'Reais' AS unidade_per_capita,
+    CASE
+        WHEN pib_anterior IS NOT NULL
+             AND (ano_referencia - ano_anterior) = 1 THEN
+            ROUND(
+                ((pib_corrente_mil_reais - pib_anterior) * 100.0)
+                / NULLIF(pib_anterior, 0),
+                2
+            )
+        ELSE NULL
+    END AS variacao_nominal_pib_pct,
+    CASE
+        WHEN pib_per_capita_anterior IS NOT NULL
+             AND (ano_referencia - ano_anterior) = 1 THEN
+            ROUND(
+                ((pib_per_capita_reais - pib_per_capita_anterior) * 100.0)
+                / NULLIF(pib_per_capita_anterior, 0),
+                2
+            )
+        ELSE NULL
+    END AS variacao_nominal_per_capita_pct,
+    ROUND(
+        (vab_agropecuaria_mil_reais * 100.0) / NULLIF(vab_total_mil_reais, 0),
+        2
+    ) AS participacao_agropecuaria_vab_pct,
+    ROUND(
+        (vab_industria_mil_reais * 100.0) / NULLIF(vab_total_mil_reais, 0),
+        2
+    ) AS participacao_industria_vab_pct,
+    ROUND(
+        (vab_servicos_mil_reais * 100.0) / NULLIF(vab_total_mil_reais, 0),
+        2
+    ) AS participacao_servicos_vab_pct,
+    ROUND(
+        (vab_administracao_publica_mil_reais * 100.0)
+        / NULLIF(vab_total_mil_reais, 0),
+        2
+    ) AS participacao_administracao_publica_vab_pct,
+    fonte_oficial
+FROM pib_lag;
+"""
+
+# DDL da Camada Gold: Demografia por Sexo e Razão de Sexo
+DDL_DROP_GOLD_DEMOGRAFIA_SEXO = "DROP VIEW IF EXISTS gold_demografia_sexo;"
+DDL_GOLD_DEMOGRAFIA_SEXO = """
+CREATE VIEW IF NOT EXISTS gold_demografia_sexo AS
+WITH sexo_agg AS (
+    SELECT
+        c.municipio_id,
+        m.nome AS municipio_nome,
+        c.ano_referencia,
+        MAX(
+            CASE WHEN c.categoria_classificacao = 'Homens'
+                 THEN c.valor END
+        ) AS populacao_masculina,
+        MAX(
+            CASE WHEN c.categoria_classificacao = 'Mulheres'
+                 THEN c.valor END
+        ) AS populacao_feminina,
+        c.fonte_oficial
+    FROM silver_ibge_censitario c
+    LEFT JOIN silver_municipio m ON c.municipio_id = m.id
+    WHERE c.variavel_nome LIKE '%sexo%'
+       OR c.categoria_classificacao IN ('Homens', 'Mulheres')
+    GROUP BY c.municipio_id, m.nome, c.ano_referencia, c.fonte_oficial
+)
+SELECT
+    municipio_id,
+    municipio_nome,
+    ano_referencia,
+    CAST(populacao_masculina AS INTEGER) AS populacao_masculina,
+    CAST(populacao_feminina AS INTEGER) AS populacao_feminina,
+    CAST((populacao_masculina + populacao_feminina) AS INTEGER)
+        AS populacao_total,
+    ROUND(
+        (populacao_masculina * 100.0)
+        / NULLIF(populacao_masculina + populacao_feminina, 0),
+        2
+    ) AS participacao_masculina_pct,
+    ROUND(
+        (populacao_feminina * 100.0)
+        / NULLIF(populacao_masculina + populacao_feminina, 0),
+        2
+    ) AS participacao_feminina_pct,
+    ROUND(
+        (populacao_masculina * 100.0) / NULLIF(populacao_feminina, 0),
+        2
+    ) AS razao_sexo,
+    fonte_oficial
+FROM sexo_agg;
+"""
+
+# DDL da Camada Gold: Resumo Consolidado Socioeconômico
+DDL_DROP_GOLD_RESUMO_SOCIOECONOMICO = "DROP VIEW IF EXISTS gold_resumo_socioeconomico;"
+DDL_GOLD_RESUMO_SOCIOECONOMICO = """
+CREATE VIEW IF NOT EXISTS gold_resumo_socioeconomico AS
+SELECT
+    p.municipio_id,
+    m.nome AS municipio_nome,
+    'Demografia' AS tema,
+    'População residente total (Censo 2022)' AS indicador,
+    p.populacao AS valor,
+    p.unidade,
+    p.ano_referencia,
+    p.fonte_oficial,
+    p.transformed_at
+FROM silver_ibge_populacao p
+LEFT JOIN silver_municipio m ON p.municipio_id = m.id
+WHERE p.tipo_populacao = 'Censo Demográfico'
+
+UNION ALL
+
+SELECT
+    p.municipio_id,
+    m.nome AS municipio_nome,
+    'Demografia' AS tema,
+    'População residente estimada mais recente' AS indicador,
+    p.populacao AS valor,
+    p.unidade,
+    p.ano_referencia,
+    p.fonte_oficial,
+    p.transformed_at
+FROM silver_ibge_populacao p
+LEFT JOIN silver_municipio m ON p.municipio_id = m.id
+WHERE p.tipo_populacao = 'Estimativa Populacional'
+  AND p.ano_referencia = (
+      SELECT MAX(ano_referencia) FROM silver_ibge_populacao
+      WHERE tipo_populacao = 'Estimativa Populacional'
+  )
+
+UNION ALL
+
+SELECT
+    c.municipio_id,
+    m.nome AS municipio_nome,
+    CASE
+        WHEN c.variavel_nome LIKE '%sexo%' THEN 'Demografia'
+        WHEN c.variavel_nome LIKE '%alfabetiz%' THEN 'Educação'
+        ELSE 'Território'
+    END AS tema,
+    c.variavel_nome || CASE
+        WHEN c.categoria_classificacao != 'Total'
+        THEN ' (' || c.categoria_classificacao || ')'
+        ELSE ''
+    END AS indicador,
+    c.valor,
+    c.unidade,
+    c.ano_referencia,
+    c.fonte_oficial,
+    c.transformed_at
+FROM silver_ibge_censitario c
+LEFT JOIN silver_municipio m ON c.municipio_id = m.id
+
+UNION ALL
+
+SELECT
+    pib.municipio_id,
+    pib.municipio_nome,
+    'Economia' AS tema,
+    'Produto Interno Bruto a preços correntes' AS indicador,
+    pib.pib_corrente_mil_reais AS valor,
+    pib.unidade_pib AS unidade,
+    pib.ano_referencia,
+    pib.fonte_oficial,
+    pib.transformed_at
+FROM (
+    SELECT
+        p.municipio_id,
+        m.nome AS municipio_nome,
+        p.ano_referencia,
+        p.valor AS pib_corrente_mil_reais,
+        p.unidade AS unidade_pib,
+        p.fonte_oficial,
+        p.transformed_at
+    FROM silver_ibge_pib p
+    LEFT JOIN silver_municipio m ON p.municipio_id = m.id
+    WHERE p.indicador_id = 46997
+      AND p.ano_referencia = (
+          SELECT MAX(ano_referencia) FROM silver_ibge_pib WHERE indicador_id = 46997
+      )
+) pib
+
+UNION ALL
+
+SELECT
+    pib.municipio_id,
+    pib.municipio_nome,
+    'Economia' AS tema,
+    'Produto Interno Bruto per capita' AS indicador,
+    pib.pib_per_capita_reais AS valor,
+    pib.unidade_per_capita AS unidade,
+    pib.ano_referencia,
+    pib.fonte_oficial,
+    pib.transformed_at
+FROM (
+    SELECT
+        p.municipio_id,
+        m.nome AS municipio_nome,
+        p.ano_referencia,
+        p.valor AS pib_per_capita_reais,
+        p.unidade AS unidade_per_capita,
+        p.fonte_oficial,
+        p.transformed_at
+    FROM silver_ibge_pib p
+    LEFT JOIN silver_municipio m ON p.municipio_id = m.id
+    WHERE p.indicador_id = 47001
+      AND p.ano_referencia = (
+          SELECT MAX(ano_referencia) FROM silver_ibge_pib WHERE indicador_id = 47001
+      )
+) pib;
+"""
+
 
 class IBGEStorageError(Exception):
     """Exceção base para erros operacionais na camada de armazenamento."""
@@ -324,12 +722,24 @@ def init_db(
     """
     with db_transaction(db_path=db_path, conn=conn) as active_conn:
         active_conn.execute(DDL_BRONZE_RAW)
+        active_conn.execute(DDL_BRONZE_SOCIOECONOMICO)
         active_conn.execute(DDL_SILVER_MUNICIPIO)
+        active_conn.execute(DDL_SILVER_IBGE_POPULACAO)
+        active_conn.execute(DDL_SILVER_IBGE_PIB)
+        active_conn.execute(DDL_SILVER_IBGE_CENSITARIO)
         # Sincronização idempotente das Views da camada Gold
         active_conn.execute(DDL_DROP_GOLD_HIERARQUIA)
         active_conn.execute(DDL_GOLD_HIERARQUIA)
         active_conn.execute(DDL_DROP_GOLD_AUDITORIA)
         active_conn.execute(DDL_GOLD_AUDITORIA)
+        active_conn.execute(DDL_DROP_GOLD_POPULACAO_HISTORICA)
+        active_conn.execute(DDL_GOLD_POPULACAO_HISTORICA)
+        active_conn.execute(DDL_DROP_GOLD_PIB_HISTORICO)
+        active_conn.execute(DDL_GOLD_PIB_HISTORICO)
+        active_conn.execute(DDL_DROP_GOLD_DEMOGRAFIA_SEXO)
+        active_conn.execute(DDL_GOLD_DEMOGRAFIA_SEXO)
+        active_conn.execute(DDL_DROP_GOLD_RESUMO_SOCIOECONOMICO)
+        active_conn.execute(DDL_GOLD_RESUMO_SOCIOECONOMICO)
         logger.info("Tabelas Bronze/Silver e Views Gold inicializadas e sincronizadas.")
 
 
@@ -467,6 +877,247 @@ def read_bronze_record(
             conn.close()
 
 
+def canonical_json_sha256(payload: Any) -> tuple[str, str]:
+    """Serializa o payload em JSON canônico determinístico e calcula o SHA-256.
+
+    Args:
+        payload: Dict ou List retornado pela API.
+
+    Returns:
+        Tupla com (json_string_canonica, checksum_sha256_hex).
+    """
+    json_str = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    checksum = hashlib.sha256(json_str.encode("utf-8")).hexdigest()
+    return json_str, checksum
+
+
+def save_bronze_socioeconomico(
+    municipio_id: int,
+    indicador: str,
+    periodo_referencia: str,
+    fonte_oficial: str,
+    endpoint_url: str,
+    raw_payload: Any,
+    http_status: int = 200,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> str:
+    """Persiste o payload bruto socioeconômico na Bronze com idempotência.
+
+    Implementa UPSERT idempotente baseado na chave composta:
+    (municipio_id, indicador, periodo_referencia).
+
+    Args:
+        municipio_id: Código IBGE do município (ex: 3529401).
+        indicador: Nome identificador do indicador (ex: 'censo_pop_area_densidade').
+        periodo_referencia: Período coberto (ex: '2022', '2001-2026', '2002-2023').
+        fonte_oficial: Nome da fonte oficial do IBGE.
+        endpoint_url: URL consultada para a extração.
+        raw_payload: Dict ou List com os dados brutos da API.
+        http_status: Código de status HTTP da resposta.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional.
+
+    Returns:
+        String hexadecimal do checksum SHA-256 gerado deterministicamente.
+
+    Raises:
+        IBGEStorageError: Se os identificadores ou payload forem inválidos.
+    """
+    if not indicador or not periodo_referencia or not fonte_oficial:
+        msg = (
+            "Campos identificadores (indicador, periodo_referencia, fonte_oficial) "
+            "são obrigatórios para a camada Bronze socioeconômica."
+        )
+        logger.error(msg)
+        raise IBGEStorageError(msg)
+
+    if not isinstance(raw_payload, (dict, list)):
+        msg = (
+            f"Payload inválido para o indicador {indicador}: "
+            f"esperado dict ou list, recebido {type(raw_payload).__name__}."
+        )
+        logger.error(msg)
+        raise IBGEStorageError(msg)
+
+    json_str, checksum = canonical_json_sha256(raw_payload)
+    timestamp = datetime.now(UTC).isoformat()
+
+    query = """
+    INSERT INTO bronze_ibge_socioeconomico (
+        municipio_id, indicador, periodo_referencia,
+        fonte_oficial, endpoint_url, payload_json,
+        checksum_sha256, http_status, ingestion_timestamp
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(municipio_id, indicador, periodo_referencia) DO UPDATE SET
+        fonte_oficial = excluded.fonte_oficial,
+        endpoint_url = excluded.endpoint_url,
+        payload_json = excluded.payload_json,
+        checksum_sha256 = excluded.checksum_sha256,
+        http_status = excluded.http_status,
+        ingestion_timestamp = excluded.ingestion_timestamp;
+    """
+
+    init_db(db_path=db_path, conn=conn)
+
+    with db_transaction(db_path=db_path, conn=conn) as active_conn:
+        active_conn.execute(
+            query,
+            (
+                int(municipio_id),
+                indicador,
+                periodo_referencia,
+                fonte_oficial,
+                endpoint_url,
+                json_str,
+                checksum,
+                http_status,
+                timestamp,
+            ),
+        )
+        logger.info(
+            "Bronze socioeconômico atualizada: %s (município: %s, ref: %s). Hash: %s",
+            indicador,
+            municipio_id,
+            periodo_referencia,
+            checksum[:8],
+        )
+
+    return checksum
+
+
+def read_bronze_socioeconomico(
+    municipio_id: int,
+    indicador: str,
+    periodo_referencia: str,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
+    """Recupera um indicador socioeconômico armazenado na camada Bronze.
+
+    Args:
+        municipio_id: Código IBGE do município.
+        indicador: Nome do indicador gravado.
+        periodo_referencia: Período de referência consultado.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional.
+
+    Returns:
+        Dicionário com colunas da tabela e campo 'payload' decodificado, ou None.
+    """
+    init_db(db_path=db_path, conn=conn)
+    query = """
+    SELECT
+        municipio_id, indicador, periodo_referencia,
+        fonte_oficial, endpoint_url, payload_json,
+        checksum_sha256, http_status, ingestion_timestamp
+    FROM bronze_ibge_socioeconomico
+    WHERE municipio_id = ? AND indicador = ? AND periodo_referencia = ?;
+    """
+    close_after = False
+    if conn is None:
+        conn = get_db_connection(db_path)
+        close_after = True
+
+    try:
+        cursor = conn.execute(query, (int(municipio_id), indicador, periodo_referencia))
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "municipio_id": row["municipio_id"],
+            "indicador": row["indicador"],
+            "periodo_referencia": row["periodo_referencia"],
+            "fonte_oficial": row["fonte_oficial"],
+            "endpoint_url": row["endpoint_url"],
+            "payload": json.loads(row["payload_json"]),
+            "payload_json": row["payload_json"],
+            "checksum_sha256": row["checksum_sha256"],
+            "http_status": row["http_status"],
+            "ingestion_timestamp": row["ingestion_timestamp"],
+        }
+    finally:
+        if close_after:
+            conn.close()
+
+
+def list_bronze_socioeconomico(
+    municipio_id: int | None = None,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> list[dict[str, Any]]:
+    """Lista o sumário dos indicadores socioeconômicos persistidos na Bronze.
+
+    Args:
+        municipio_id: Filtro opcional por código do município.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional.
+
+    Returns:
+        Lista de dicionários com os metadados dos indicadores persistidos.
+    """
+    init_db(db_path=db_path, conn=conn)
+    query = """
+    SELECT
+        municipio_id, indicador, periodo_referencia,
+        fonte_oficial, endpoint_url, checksum_sha256,
+        http_status, ingestion_timestamp
+    FROM bronze_ibge_socioeconomico
+    """
+    params: list[Any] = []
+    if municipio_id is not None:
+        query += " WHERE municipio_id = ?"
+        params.append(int(municipio_id))
+    query += " ORDER BY indicador, periodo_referencia;"
+
+    close_after = False
+    if conn is None:
+        conn = get_db_connection(db_path)
+        close_after = True
+
+    try:
+        cursor = conn.execute(query, tuple(params))
+        rows = cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        if close_after:
+            conn.close()
+
+
+def save_all_socioeconomico_bronze(
+    socioeconomico_dict: dict[str, dict[str, Any]],
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, str]:
+    """Persiste um lote de indicadores socioeconômicos na camada Bronze.
+
+    Args:
+        socioeconomico_dict: Dicionário retornado por fetch_all_socioeconomico_maua.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional.
+
+    Returns:
+        Dicionário mapeando chave do indicador ao seu hash SHA-256.
+    """
+    checksums: dict[str, str] = {}
+    for key, data in socioeconomico_dict.items():
+        ck = save_bronze_socioeconomico(
+            municipio_id=data["municipio_id"],
+            indicador=data.get("indicador", key),
+            periodo_referencia=data["periodo_referencia"],
+            fonte_oficial=data["fonte_oficial"],
+            endpoint_url=data["endpoint_url"],
+            raw_payload=data["payload"],
+            http_status=data.get("http_status", 200),
+            db_path=db_path,
+            conn=conn,
+        )
+        checksums[key] = ck
+    return checksums
+
+
 # ---------------------------------------------------------------------------
 # Operações da Camada Silver (Conformed & Cleansed)
 # ---------------------------------------------------------------------------
@@ -572,6 +1223,416 @@ def read_silver(
     finally:
         if close_after:
             conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Operações da Camada Silver Socioeconômica
+# ---------------------------------------------------------------------------
+
+
+def save_silver_populacao(
+    df: pd.DataFrame,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Persiste dados de população na silver_ibge_populacao com idempotência (UPSERT).
+
+    Args:
+        df: DataFrame Pandas contendo as colunas de população normalizadas.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional existente.
+
+    Returns:
+        Número de registros persistidos/atualizados.
+
+    Raises:
+        IBGEStorageError: Se o DataFrame for vazio ou inválido.
+    """
+    cols = [
+        "municipio_id",
+        "ano_referencia",
+        "populacao",
+        "tipo_populacao",
+        "unidade",
+        "fonte_oficial",
+        "bronze_indicador",
+    ]
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        msg = "DataFrame inválido ou vazio para silver_ibge_populacao."
+        logger.error(msg)
+        raise IBGEStorageError(msg)
+
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        msg = f"Colunas obrigatórias ausentes em silver_ibge_populacao: {missing}"
+        logger.error(msg)
+        raise IBGEStorageError(msg)
+
+    init_db(db_path=db_path, conn=conn)
+    timestamp = datetime.now(UTC).isoformat()
+
+    query = """
+    INSERT INTO silver_ibge_populacao (
+        municipio_id, ano_referencia, populacao, tipo_populacao,
+        unidade, fonte_oficial, bronze_indicador, transformed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(municipio_id, ano_referencia, tipo_populacao) DO UPDATE SET
+        populacao = excluded.populacao,
+        unidade = excluded.unidade,
+        fonte_oficial = excluded.fonte_oficial,
+        bronze_indicador = excluded.bronze_indicador,
+        transformed_at = excluded.transformed_at;
+    """
+
+    count = 0
+    with db_transaction(db_path=db_path, conn=conn) as active_conn:
+        for _, row in df.iterrows():
+            active_conn.execute(
+                query,
+                (
+                    int(row["municipio_id"]),
+                    int(row["ano_referencia"]),
+                    int(row["populacao"]),
+                    str(row["tipo_populacao"]),
+                    str(row["unidade"]),
+                    str(row["fonte_oficial"]),
+                    str(row["bronze_indicador"]),
+                    timestamp,
+                ),
+            )
+            count += 1
+        logger.info("silver_ibge_populacao atualizada com %d registro(s).", count)
+    return count
+
+
+def read_silver_populacao(
+    municipio_id: int | None = None,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> pd.DataFrame:
+    """Consulta registros de contagem e estimativa populacional da Silver.
+
+    Args:
+        municipio_id: Código IBGE opcional para filtro.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional.
+
+    Returns:
+        DataFrame Pandas ordenado por ano_referencia e tipo_populacao.
+    """
+    init_db(db_path=db_path, conn=conn)
+    close_after = False
+    if conn is None:
+        conn = get_db_connection(db_path)
+        close_after = True
+
+    try:
+        if municipio_id is not None:
+            query = (
+                "SELECT * FROM silver_ibge_populacao WHERE municipio_id = ? "
+                "ORDER BY ano_referencia ASC, tipo_populacao ASC;"
+            )
+            cursor = conn.execute(query, (int(municipio_id),))
+        else:
+            query = (
+                "SELECT * FROM silver_ibge_populacao "
+                "ORDER BY municipio_id ASC, ano_referencia ASC, tipo_populacao ASC;"
+            )
+            cursor = conn.execute(query)
+
+        rows = cursor.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([dict(r) for r in rows])
+    finally:
+        if close_after:
+            conn.close()
+
+
+def save_silver_pib(
+    df: pd.DataFrame,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Persiste dados econômicos na silver_ibge_pib com idempotência (UPSERT).
+
+    Args:
+        df: DataFrame Pandas contendo as variáveis do PIB normalizadas.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional existente.
+
+    Returns:
+        Número de registros persistidos/atualizados.
+
+    Raises:
+        IBGEStorageError: Se o DataFrame for vazio ou inválido.
+    """
+    cols = [
+        "municipio_id",
+        "ano_referencia",
+        "indicador_id",
+        "indicador_nome",
+        "valor",
+        "unidade",
+        "tipo_valor",
+        "fonte_oficial",
+        "bronze_indicador",
+    ]
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        msg = "DataFrame inválido ou vazio para silver_ibge_pib."
+        logger.error(msg)
+        raise IBGEStorageError(msg)
+
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        msg = f"Colunas obrigatórias ausentes em silver_ibge_pib: {missing}"
+        logger.error(msg)
+        raise IBGEStorageError(msg)
+
+    init_db(db_path=db_path, conn=conn)
+    timestamp = datetime.now(UTC).isoformat()
+
+    query = """
+    INSERT INTO silver_ibge_pib (
+        municipio_id, ano_referencia, indicador_id, indicador_nome,
+        valor, unidade, tipo_valor, fonte_oficial, bronze_indicador, transformed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(municipio_id, ano_referencia, indicador_id) DO UPDATE SET
+        indicador_nome = excluded.indicador_nome,
+        valor = excluded.valor,
+        unidade = excluded.unidade,
+        tipo_valor = excluded.tipo_valor,
+        fonte_oficial = excluded.fonte_oficial,
+        bronze_indicador = excluded.bronze_indicador,
+        transformed_at = excluded.transformed_at;
+    """
+
+    count = 0
+    with db_transaction(db_path=db_path, conn=conn) as active_conn:
+        for _, row in df.iterrows():
+            active_conn.execute(
+                query,
+                (
+                    int(row["municipio_id"]),
+                    int(row["ano_referencia"]),
+                    int(row["indicador_id"]),
+                    str(row["indicador_nome"]),
+                    float(row["valor"]),
+                    str(row["unidade"]),
+                    str(row["tipo_valor"]),
+                    str(row["fonte_oficial"]),
+                    str(row["bronze_indicador"]),
+                    timestamp,
+                ),
+            )
+            count += 1
+        logger.info("silver_ibge_pib atualizada com %d registro(s).", count)
+    return count
+
+
+def read_silver_pib(
+    municipio_id: int | None = None,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> pd.DataFrame:
+    """Consulta séries temporais econômicas da tabela silver_ibge_pib.
+
+    Args:
+        municipio_id: Código IBGE opcional para filtro.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional.
+
+    Returns:
+        DataFrame Pandas ordenado por ano_referencia e indicador_id.
+    """
+    init_db(db_path=db_path, conn=conn)
+    close_after = False
+    if conn is None:
+        conn = get_db_connection(db_path)
+        close_after = True
+
+    try:
+        if municipio_id is not None:
+            query = (
+                "SELECT * FROM silver_ibge_pib WHERE municipio_id = ? "
+                "ORDER BY ano_referencia ASC, indicador_id ASC;"
+            )
+            cursor = conn.execute(query, (int(municipio_id),))
+        else:
+            query = (
+                "SELECT * FROM silver_ibge_pib "
+                "ORDER BY municipio_id ASC, ano_referencia ASC, indicador_id ASC;"
+            )
+            cursor = conn.execute(query)
+
+        rows = cursor.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([dict(r) for r in rows])
+    finally:
+        if close_after:
+            conn.close()
+
+
+def save_silver_censitario(
+    df: pd.DataFrame,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Persiste dados censitários detalhados na silver_ibge_censitario via UPSERT.
+
+    Args:
+        df: DataFrame Pandas contendo os registros censitários normalizados.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional existente.
+
+    Returns:
+        Número de registros persistidos/atualizados.
+
+    Raises:
+        IBGEStorageError: Se o DataFrame for vazio ou inválido.
+    """
+    cols = [
+        "municipio_id",
+        "ano_referencia",
+        "variavel_id",
+        "variavel_nome",
+        "categoria_classificacao",
+        "valor",
+        "unidade",
+        "fonte_oficial",
+        "bronze_indicador",
+    ]
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        msg = "DataFrame inválido ou vazio para silver_ibge_censitario."
+        logger.error(msg)
+        raise IBGEStorageError(msg)
+
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        msg = f"Colunas obrigatórias ausentes em silver_ibge_censitario: {missing}"
+        logger.error(msg)
+        raise IBGEStorageError(msg)
+
+    init_db(db_path=db_path, conn=conn)
+    timestamp = datetime.now(UTC).isoformat()
+
+    query = """
+    INSERT INTO silver_ibge_censitario (
+        municipio_id, ano_referencia, variavel_id, variavel_nome,
+        categoria_classificacao, valor, unidade, fonte_oficial,
+        bronze_indicador, transformed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(municipio_id, ano_referencia, variavel_id, categoria_classificacao)
+    DO UPDATE SET
+        variavel_nome = excluded.variavel_nome,
+        valor = excluded.valor,
+        unidade = excluded.unidade,
+        fonte_oficial = excluded.fonte_oficial,
+        bronze_indicador = excluded.bronze_indicador,
+        transformed_at = excluded.transformed_at;
+    """
+
+    count = 0
+    with db_transaction(db_path=db_path, conn=conn) as active_conn:
+        for _, row in df.iterrows():
+            active_conn.execute(
+                query,
+                (
+                    int(row["municipio_id"]),
+                    int(row["ano_referencia"]),
+                    int(row["variavel_id"]),
+                    str(row["variavel_nome"]),
+                    str(row["categoria_classificacao"]),
+                    float(row["valor"]),
+                    str(row["unidade"]),
+                    str(row["fonte_oficial"]),
+                    str(row["bronze_indicador"]),
+                    timestamp,
+                ),
+            )
+            count += 1
+        logger.info("silver_ibge_censitario atualizada com %d registro(s).", count)
+    return count
+
+
+def read_silver_censitario(
+    municipio_id: int | None = None,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> pd.DataFrame:
+    """Consulta indicadores censitários estruturados da Silver.
+
+    Args:
+        municipio_id: Código IBGE opcional para filtro.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional.
+
+    Returns:
+        DataFrame Pandas ordenado por ano_referencia, variavel_id e categoria.
+    """
+    init_db(db_path=db_path, conn=conn)
+    close_after = False
+    if conn is None:
+        conn = get_db_connection(db_path)
+        close_after = True
+
+    try:
+        if municipio_id is not None:
+            query = (
+                "SELECT * FROM silver_ibge_censitario WHERE municipio_id = ? "
+                "ORDER BY ano_referencia ASC, variavel_id ASC, "
+                "categoria_classificacao ASC;"
+            )
+            cursor = conn.execute(query, (int(municipio_id),))
+        else:
+            query = (
+                "SELECT * FROM silver_ibge_censitario "
+                "ORDER BY municipio_id ASC, ano_referencia ASC, "
+                "variavel_id ASC, categoria_classificacao ASC;"
+            )
+            cursor = conn.execute(query)
+
+        rows = cursor.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([dict(r) for r in rows])
+    finally:
+        if close_after:
+            conn.close()
+
+
+def save_all_socioeconomico_silver(
+    dfs: dict[str, pd.DataFrame],
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, int]:
+    """Persiste o conjunto completo de DataFrames da Silver Socioeconômica.
+
+    Args:
+        dfs: Dicionário contendo as chaves 'populacao', 'pib' e 'censitario'.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional existente.
+
+    Returns:
+        Dicionário com a quantidade de registros gravados por tabela.
+    """
+    init_db(db_path=db_path, conn=conn)
+    counts = {}
+
+    if "populacao" in dfs and not dfs["populacao"].empty:
+        counts["populacao"] = save_silver_populacao(
+            dfs["populacao"], db_path=db_path, conn=conn
+        )
+    if "pib" in dfs and not dfs["pib"].empty:
+        counts["pib"] = save_silver_pib(dfs["pib"], db_path=db_path, conn=conn)
+    if "censitario" in dfs and not dfs["censitario"].empty:
+        counts["censitario"] = save_silver_censitario(
+            dfs["censitario"], db_path=db_path, conn=conn
+        )
+
+    logger.info("Persistência em lote da Silver Socioeconômica concluída: %s", counts)
+    return counts
 
 
 # ---------------------------------------------------------------------------
@@ -825,3 +1886,568 @@ def get_kpis_qualidade(
     finally:
         if close_after:
             conn.close()
+
+
+def read_gold_populacao_historica(
+    municipio_id: int | None = None,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> pd.DataFrame:
+    """Consulta a série histórica de população e variações da camada Gold.
+
+    Apresenta dados de Censo e Estimativas com cálculo de variação absoluta
+    e percentual entre observações compatíveis.
+
+    Args:
+        municipio_id: Código IBGE opcional para filtro pontual.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional existente.
+
+    Returns:
+        DataFrame Pandas contendo a série temporal de população.
+    """
+    init_db(db_path=db_path, conn=conn)
+    close_after = False
+    if conn is None:
+        conn = get_db_connection(db_path)
+        close_after = True
+
+    try:
+        if municipio_id is not None:
+            query = (
+                "SELECT * FROM gold_populacao_historica WHERE municipio_id = ? "
+                "ORDER BY tipo_populacao, ano_referencia ASC;"
+            )
+            cursor = conn.execute(query, (int(municipio_id),))
+        else:
+            query = (
+                "SELECT * FROM gold_populacao_historica "
+                "ORDER BY municipio_id, tipo_populacao, ano_referencia ASC;"
+            )
+            cursor = conn.execute(query)
+
+        rows = cursor.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([dict(r) for r in rows])
+    finally:
+        if close_after:
+            conn.close()
+
+
+def read_gold_pib_historico(
+    municipio_id: int | None = None,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> pd.DataFrame:
+    """Consulta séries econômicas de PIB, per capita e VABs setoriais da Gold.
+
+    Apresenta PIB corrente, PIB per capita, VABs da Agropecuária, Indústria,
+    Serviços e Administração Pública, além de variações percentuais nominais.
+
+    Args:
+        municipio_id: Código IBGE opcional para filtro pontual.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional existente.
+
+    Returns:
+        DataFrame Pandas com séries econômicas consolidadas.
+    """
+    init_db(db_path=db_path, conn=conn)
+    close_after = False
+    if conn is None:
+        conn = get_db_connection(db_path)
+        close_after = True
+
+    try:
+        if municipio_id is not None:
+            query = (
+                "SELECT * FROM gold_pib_historico WHERE municipio_id = ? "
+                "ORDER BY ano_referencia ASC;"
+            )
+            cursor = conn.execute(query, (int(municipio_id),))
+        else:
+            query = (
+                "SELECT * FROM gold_pib_historico "
+                "ORDER BY municipio_id, ano_referencia ASC;"
+            )
+            cursor = conn.execute(query)
+
+        rows = cursor.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([dict(r) for r in rows])
+    finally:
+        if close_after:
+            conn.close()
+
+
+def read_gold_demografia_sexo(
+    municipio_id: int | None = None,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> pd.DataFrame:
+    """Consulta a composição demográfica por sexo e razão de sexo da Gold.
+
+    Apresenta contagens por homens e mulheres, participações percentuais e
+    razão de sexo demográfica (homens para cada 100 mulheres).
+
+    Args:
+        municipio_id: Código IBGE opcional para filtro pontual.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional existente.
+
+    Returns:
+        DataFrame Pandas com indicadores demográficos por sexo.
+    """
+    init_db(db_path=db_path, conn=conn)
+    close_after = False
+    if conn is None:
+        conn = get_db_connection(db_path)
+        close_after = True
+
+    try:
+        if municipio_id is not None:
+            query = (
+                "SELECT * FROM gold_demografia_sexo WHERE municipio_id = ? "
+                "ORDER BY ano_referencia ASC;"
+            )
+            cursor = conn.execute(query, (int(municipio_id),))
+        else:
+            query = (
+                "SELECT * FROM gold_demografia_sexo "
+                "ORDER BY municipio_id, ano_referencia ASC;"
+            )
+            cursor = conn.execute(query)
+
+        rows = cursor.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([dict(r) for r in rows])
+    finally:
+        if close_after:
+            conn.close()
+
+
+def read_gold_resumo_socioeconomico(
+    municipio_id: int | None = None,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> pd.DataFrame:
+    """Consulta o sumário de indicadores socioeconômicos consolidados da Gold.
+
+    Apresenta visão consolidada para o dashboard interativo preservando
+    estritamente o período de referência de cada indicador.
+
+    Args:
+        municipio_id: Código IBGE opcional para filtro pontual.
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional existente.
+
+    Returns:
+        DataFrame Pandas no formato longo de indicadores consolidados.
+    """
+    init_db(db_path=db_path, conn=conn)
+    close_after = False
+    if conn is None:
+        conn = get_db_connection(db_path)
+        close_after = True
+
+    try:
+        if municipio_id is not None:
+            query = (
+                "SELECT * FROM gold_resumo_socioeconomico WHERE municipio_id = ? "
+                "ORDER BY tema, indicador;"
+            )
+            cursor = conn.execute(query, (int(municipio_id),))
+        else:
+            query = (
+                "SELECT * FROM gold_resumo_socioeconomico "
+                "ORDER BY municipio_id, tema, indicador;"
+            )
+            cursor = conn.execute(query)
+
+        rows = cursor.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([dict(r) for r in rows])
+    finally:
+        if close_after:
+            conn.close()
+
+
+def get_kpis_socioeconomicos(
+    municipio_id: int | None = None,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    """Sumariza os principais KPIs socioeconômicos e demográficos de Mauá.
+
+    Função consumida pelo Dashboard analítico para exibição dos cards de topo.
+
+    Args:
+        municipio_id: Código IBGE opcional (padrão: 3529401).
+        db_path: Caminho para o banco SQLite.
+        conn: Conexão opcional existente.
+
+    Returns:
+        Dicionário com os principais indicadores estruturados.
+    """
+    df_resumo = read_gold_resumo_socioeconomico(
+        municipio_id=municipio_id, db_path=db_path, conn=conn
+    )
+    df_sexo = read_gold_demografia_sexo(
+        municipio_id=municipio_id, db_path=db_path, conn=conn
+    )
+
+    kpis: dict[str, Any] = {
+        "populacao_censo_2022": None,
+        "populacao_estimada_recente": None,
+        "ano_estimativa_recente": None,
+        "pib_corrente_mil_reais": None,
+        "ano_pib_corrente": None,
+        "pib_per_capita_reais": None,
+        "ano_pib_per_capita": None,
+        "area_territorial_km2": None,
+        "densidade_demografica": None,
+        "taxa_alfabetizacao_pct": None,
+        "razao_sexo": None,
+        "participacao_masculina_pct": None,
+        "participacao_feminina_pct": None,
+    }
+
+    if not df_resumo.empty:
+        for _, row in df_resumo.iterrows():
+            ind = str(row["indicador"])
+            val = row["valor"]
+            ano = row["ano_referencia"]
+            if "Censo 2022" in ind and "total" in ind.lower():
+                kpis["populacao_censo_2022"] = int(val)
+            elif "estimada mais recente" in ind.lower():
+                kpis["populacao_estimada_recente"] = int(val)
+                kpis["ano_estimativa_recente"] = int(ano)
+            elif "preços correntes" in ind.lower():
+                kpis["pib_corrente_mil_reais"] = float(val)
+                kpis["ano_pib_corrente"] = int(ano)
+            elif "per capita" in ind.lower():
+                kpis["pib_per_capita_reais"] = float(val)
+                kpis["ano_pib_per_capita"] = int(ano)
+            elif "área territorial" in ind.lower():
+                kpis["area_territorial_km2"] = float(val)
+            elif "densidade demográfica" in ind.lower():
+                kpis["densidade_demografica"] = float(val)
+            elif "taxa de alfabetização" in ind.lower():
+                kpis["taxa_alfabetizacao_pct"] = float(val)
+
+    if not df_sexo.empty:
+        first_sexo = df_sexo.iloc[0]
+        kpis["razao_sexo"] = float(first_sexo["razao_sexo"])
+        kpis["participacao_masculina_pct"] = float(
+            first_sexo["participacao_masculina_pct"]
+        )
+        kpis["participacao_feminina_pct"] = float(
+            first_sexo["participacao_feminina_pct"]
+        )
+
+    return kpis
+
+
+# =============================================================================
+# Consultas Analíticas de Governança e Volumetria da Arquitetura Medallion
+# =============================================================================
+
+CATALOGO_OBJETOS_MEDALLION: list[dict[str, str]] = [
+    {
+        "camada": "Bronze",
+        "objeto": "bronze_ibge_raw",
+        "tipo_objeto": "Tabela Física",
+        "dominio": "Territorial",
+        "descricao_granularidade": "JSON bruto oficial da API de Localidades (Mauá)",
+    },
+    {
+        "camada": "Bronze",
+        "objeto": "bronze_ibge_socioeconomico",
+        "tipo_objeto": "Tabela Física",
+        "dominio": "Socioeconômico",
+        "descricao_granularidade": (
+            "JSONs brutos das 5 pesquisas socioeconômicas do IBGE"
+        ),
+    },
+    {
+        "camada": "Silver",
+        "objeto": "silver_municipio",
+        "tipo_objeto": "Tabela Física",
+        "dominio": "Territorial",
+        "descricao_granularidade": (
+            "Hierarquia geográfica normalizada (1 linha/município)"
+        ),
+    },
+    {
+        "camada": "Silver",
+        "objeto": "silver_ibge_populacao",
+        "tipo_objeto": "Tabela Física",
+        "dominio": "Socioeconômico",
+        "descricao_granularidade": (
+            "Série anual de população residente (Censo e Estimativas)"
+        ),
+    },
+    {
+        "camada": "Silver",
+        "objeto": "silver_ibge_pib",
+        "tipo_objeto": "Tabela Física",
+        "dominio": "Socioeconômico",
+        "descricao_granularidade": (
+            "Série histórica longa de PIB, VAB setorial e impostos"
+        ),
+    },
+    {
+        "camada": "Silver",
+        "objeto": "silver_ibge_censitario",
+        "tipo_objeto": "Tabela Física",
+        "dominio": "Socioeconômico",
+        "descricao_granularidade": (
+            "Variáveis censitárias (sexo, alfabetização, área, densidade)"
+        ),
+    },
+    {
+        "camada": "Gold",
+        "objeto": "gold_vw_municipio_hierarquia",
+        "tipo_objeto": "View Analítica",
+        "dominio": "Territorial",
+        "descricao_granularidade": (
+            "Visão analítica das divisões regionais e geográficas"
+        ),
+    },
+    {
+        "camada": "Gold",
+        "objeto": "gold_vw_qualidade_auditoria",
+        "tipo_objeto": "View Analítica",
+        "dominio": "Territorial",
+        "descricao_granularidade": (
+            "Painel de reconciliação e integridade Bronze-Silver territorial"
+        ),
+    },
+    {
+        "camada": "Gold",
+        "objeto": "gold_populacao_historica",
+        "tipo_objeto": "View Analítica",
+        "dominio": "Socioeconômico",
+        "descricao_granularidade": (
+            "Série temporal com LAGs, variações e continuidade"
+        ),
+    },
+    {
+        "camada": "Gold",
+        "objeto": "gold_pib_historico",
+        "tipo_objeto": "View Analítica",
+        "dominio": "Socioeconômico",
+        "descricao_granularidade": (
+            "Série temporal analítica de PIB corrente, per capita e VABs"
+        ),
+    },
+    {
+        "camada": "Gold",
+        "objeto": "gold_demografia_sexo",
+        "tipo_objeto": "View Analítica",
+        "dominio": "Socioeconômico",
+        "descricao_granularidade": (
+            "Distribuição por sexo e razão demográfica de gênero"
+        ),
+    },
+    {
+        "camada": "Gold",
+        "objeto": "gold_resumo_socioeconomico",
+        "tipo_objeto": "View Analítica",
+        "dominio": "Socioeconômico",
+        "descricao_granularidade": (
+            "Indicadores estratégicos consolidados em formato longo"
+        ),
+    },
+]
+
+
+def get_volumetria_medallion(
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> pd.DataFrame:
+    """Calcula a volumetria física real de cada tabela e view no SQLite.
+
+    Discrimina os objetos por camada Medallion (Bronze, Silver, Gold) e
+    domínio de negócio (Territorial vs Socioeconômico), sem hardcode de valores.
+
+    Args:
+        db_path: Caminho opcional para o banco de dados SQLite.
+        conn: Conexão ativa opcional.
+
+    Returns:
+        DataFrame com colunas:
+        ["camada", "objeto", "tipo_objeto", "dominio", "total_registros",
+         "descricao_granularidade"]
+    """
+    should_close = False
+    if conn is None:
+        target = resolve_db_path(db_path)
+        if target != ":memory:" and not Path(target).exists():
+            return pd.DataFrame(
+                columns=[
+                    "camada",
+                    "objeto",
+                    "tipo_objeto",
+                    "dominio",
+                    "total_registros",
+                    "descricao_granularidade",
+                ]
+            )
+        conn = get_db_connection(db_path)
+        should_close = True
+
+    registros: list[dict[str, Any]] = []
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")
+        objetos_existentes = {row[0] for row in cursor.fetchall()}
+
+        for item in CATALOGO_OBJETOS_MEDALLION:
+            nome_obj = item["objeto"]
+            total = 0
+            if nome_obj in objetos_existentes:
+                cursor.execute(f"SELECT COUNT(*) FROM {nome_obj}")  # noqa: S608
+                total = int(cursor.fetchone()[0])
+
+            registros.append(
+                {
+                    "camada": item["camada"],
+                    "objeto": nome_obj,
+                    "tipo_objeto": item["tipo_objeto"],
+                    "dominio": item["dominio"],
+                    "total_registros": total,
+                    "descricao_granularidade": item["descricao_granularidade"],
+                }
+            )
+    finally:
+        if should_close and conn:
+            conn.close()
+
+    return pd.DataFrame(registros)
+
+
+def get_metadados_governanca(
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    """Coleta metadados operacionais, cobertura temporal e catálogo de indicadores.
+
+    Realiza consultas dinâmicas às tabelas Silver e Gold no SQLite para apurar
+    períodos históricos e contagem de indicadores distintos.
+
+    Args:
+        db_path: Caminho opcional para o banco SQLite.
+        conn: Conexão ativa opcional.
+
+    Returns:
+        Dicionário estruturado com métricas de governança.
+    """
+    metadados: dict[str, Any] = {
+        "populacao_min_ano": None,
+        "populacao_max_ano": None,
+        "populacao_total_anos": 0,
+        "pib_min_ano": None,
+        "pib_max_ano": None,
+        "pib_total_anos": 0,
+        "pib_total_indicadores": 0,
+        "censitario_total_variaveis": 0,
+        "gold_total_indicadores": 0,
+        "gold_temas": [],
+        "total_bronze": 0,
+        "total_silver": 0,
+        "total_gold": 0,
+        "total_territorial": 0,
+        "total_socioeconomico": 0,
+    }
+
+    should_close = False
+    if conn is None:
+        target = resolve_db_path(db_path)
+        if target != ":memory:" and not Path(target).exists():
+            return metadados
+        conn = get_db_connection(db_path)
+        should_close = True
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")
+        objetos = {row[0] for row in cursor.fetchall()}
+
+        # 1. Metadados de População
+        if "silver_ibge_populacao" in objetos:
+            cursor.execute(
+                "SELECT MIN(ano_referencia), MAX(ano_referencia), "
+                "COUNT(DISTINCT ano_referencia) FROM silver_ibge_populacao"
+            )
+            row_pop = cursor.fetchone()
+            if row_pop and row_pop[0] is not None:
+                metadados["populacao_min_ano"] = int(row_pop[0])
+                metadados["populacao_max_ano"] = int(row_pop[1])
+                metadados["populacao_total_anos"] = int(row_pop[2])
+
+        # 2. Metadados de PIB
+        if "silver_ibge_pib" in objetos:
+            cursor.execute(
+                "SELECT MIN(ano_referencia), MAX(ano_referencia), "
+                "COUNT(DISTINCT ano_referencia), COUNT(DISTINCT indicador_id) "
+                "FROM silver_ibge_pib"
+            )
+            row_pib = cursor.fetchone()
+            if row_pib and row_pib[0] is not None:
+                metadados["pib_min_ano"] = int(row_pib[0])
+                metadados["pib_max_ano"] = int(row_pib[1])
+                metadados["pib_total_anos"] = int(row_pib[2])
+                metadados["pib_total_indicadores"] = int(row_pib[3])
+
+        # 3. Metadados Censitários
+        if "silver_ibge_censitario" in objetos:
+            cursor.execute(
+                "SELECT COUNT(DISTINCT variavel_id) FROM silver_ibge_censitario"
+            )
+            row_cens = cursor.fetchone()
+            if row_cens and row_cens[0] is not None:
+                metadados["censitario_total_variaveis"] = int(row_cens[0])
+
+        # 4. Metadados Gold Resumo
+        if "gold_resumo_socioeconomico" in objetos:
+            cursor.execute(
+                "SELECT COUNT(DISTINCT indicador) FROM gold_resumo_socioeconomico"
+            )
+            row_res = cursor.fetchone()
+            if row_res and row_res[0] is not None:
+                metadados["gold_total_indicadores"] = int(row_res[0])
+
+            cursor.execute(
+                "SELECT DISTINCT tema FROM gold_resumo_socioeconomico ORDER BY tema"
+            )
+            metadados["gold_temas"] = [r[0] for r in cursor.fetchall() if r[0]]
+
+        # 5. Totais agregados calculados a partir da volumetria real
+        df_vol = get_volumetria_medallion(conn=conn)
+        if not df_vol.empty:
+            metadados["total_bronze"] = int(
+                df_vol[df_vol["camada"] == "Bronze"]["total_registros"].sum()
+            )
+            metadados["total_silver"] = int(
+                df_vol[df_vol["camada"] == "Silver"]["total_registros"].sum()
+            )
+            metadados["total_gold"] = int(
+                df_vol[df_vol["camada"] == "Gold"]["total_registros"].sum()
+            )
+            metadados["total_territorial"] = int(
+                df_vol[df_vol["dominio"] == "Territorial"]["total_registros"].sum()
+            )
+            metadados["total_socioeconomico"] = int(
+                df_vol[df_vol["dominio"] == "Socioeconômico"]["total_registros"].sum()
+            )
+    finally:
+        if should_close and conn:
+            conn.close()
+
+    return metadados

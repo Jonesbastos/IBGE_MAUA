@@ -113,7 +113,8 @@ flowchart LR
 | **Fase 7** | Dashboard Interativo (Streamlit & Plotly) | ✅ **Concluída** | Interface `app.py`, consumo desacoplado da camada Gold, cards territoriais, governança, Plotly Express, 12 testes dedicados. |
 | **Fase 8** | Documentação Técnica com MkDocs Material | ✅ **Concluída** | MkDocs Material, Taskipy, doc_api, architecture, transformation, storage, gold_analytics, dashboard, pipeline.md e README.md final. |
 | **Fase 9** | Validação Integrada End-to-End e Publicação | ✅ **Concluída** | Orquestrador `main.py`, 82 testes automatizados (95.25% cobertura), validação real E2E contra API IBGE com código 0 e idempotência atestada. |
-| **Fase 10** | Automação CI/CD & Deploy GitHub Pages | ✅ **Concluída** | Workflow `.github/workflows/deploy-docs.yml`, `mkdocs.yml` com URLs remotas e `site_dir`, deploy estrito sem `pip` e documentação de ativação. |
+| **Fase 9.1** | Automação CI/CD & Deploy GitHub Pages | ✅ **Concluída** | Workflow `.github/workflows/deploy-docs.yml`, `mkdocs.yml` com URLs remotas e `site_dir`, deploy estrito sem `pip` e documentação de ativação. |
+| **Fase 10** | Enriquecimento de Dados Socioeconômicos de Mauá | 🟡 **Em Execução** | Subetapas 10.1 a 10.7: Pesquisa de agregados, extração Bronze, normalização Silver, modelagem Gold, orquestração e dashboard. (Subetapas 10.1 a 10.6 Concluídas; 10.7 Pendente). |
 
 ---
 
@@ -353,22 +354,14 @@ flowchart LR
 
 ---
 
-### FASE 10 — Automação de CI/CD e Publicação no GitHub Pages (MkDocs Material)
+### FASE 9.1 — Automação de CI/CD e Publicação no GitHub Pages (MkDocs Material) (Concluída)
 
 - **Objetivo**: Implementar a esteira automatizada de publicação da documentação técnica no GitHub Pages utilizando GitHub Actions e MkDocs Material com build estrito (`--strict`), sem o uso de `pip` e com mínima concessão de privilégios (`OIDC`).
 - **Pré-requisitos**: Fases 1 a 9 formalmente concluídas e auditadas.
-- **Atividades Técnicas**:
+- **Atividades Técnicas Concluídas**:
   1. Configurar `mkdocs.yml` com metadados do repositório remoto (`site_url`, `repo_url`, `repo_name`, `site_dir: site`).
-  2. Criar workflow de CI/CD em `.github/workflows/deploy-docs.yml`:
-     - Gatilhos: `push` na branch `main` filtrando caminhos relevantes (`docs/**`, `mkdocs.yml`, `pyproject.toml`, `poetry.lock`) e `workflow_dispatch`.
-     - Permissões mínimas: `contents: read`, `pages: write`, `id-token: write`.
-     - Controle de concorrência com grupo `"pages"`.
-     - Setup do Poetry via `snok/install-poetry@v1` (sem `pip`).
-     - Setup do Python 3.13 com cache de dependências Poetry.
-     - Build estrito com `poetry run mkdocs build --strict`.
-     - Publicação no GitHub Pages via `actions/configure-pages@v5`, `actions/upload-pages-artifact@v3` e `actions/deploy-pages@v4`.
-  3. Atualizar `README.md` com guia passo a passo para habilitação manual no GitHub (`Settings` $\rightarrow$ `Pages` $\rightarrow$ `Build and deployment` $\rightarrow$ `Source: GitHub Actions`).
-  4. Manter o pipeline de dados (Bronze, Silver, Gold, Dashboard e testes) 100% inalterado.
+  2. Criar workflow de CI/CD em `.github/workflows/deploy-docs.yml`.
+  3. Atualizar `README.md` com instruções de habilitação no GitHub Actions.
 - **Checklist de Tarefas**:
   - [x] Ajustar `mkdocs.yml` com URLs canônicas do GitHub Pages e repositório.
   - [x] Criar diretório `.github/workflows/` e workflow `deploy-docs.yml`.
@@ -379,14 +372,132 @@ flowchart LR
 - **Critérios de Aceitação**:
   - Workflow YAML válido e aderente aos padrões de segurança do GitHub Actions.
   - `mkdocs build --strict` executa com sucesso gerando o diretório `site/`.
-  - `site/` devidamente ignorado no `.gitignore`.
-  - 100% dos 82 testes continuam aprovados e com cobertura $\ge 50\%$.
-- **Comandos de Validação**:
-  ```bash
-  poetry run task docs-build
-  poetry run ruff check .
-  poetry run ruff format --check .
-  poetry run pytest
-  poetry run pre-commit run --all-files
-  ```
-- **Entregáveis**: Workflow `.github/workflows/deploy-docs.yml`, configurações em `mkdocs.yml`, documentação em `README.md` e `PLAN.md`.
+
+---
+
+### FASE 10 — Enriquecimento de Dados Socioeconômicos de Mauá (SP)
+
+- **Objetivo**: Enriquecer o ecossistema do `desafio_IBGE` com indicadores socioeconômicos reais e auditáveis de Mauá (SP) através da API de Agregados (SIDRA v3) e API de Pesquisas do IBGE, implementando séries temporais, novas tabelas Medalhão (Bronze, Silver e Gold), orquestração integrada e visualizações analíticas no Dashboard.
+- **Pré-requisitos**: Fases 1 a 9.1 consolidadas e operacionais.
+- **Mapeamento de Dependências e Riscos**:
+  - *Risco de Latência e Timeout na API do IBGE*: Endpoints do SIDRA/Agregados podem apresentar lentidão intermitente. Mitigado pela reutilização de pooling de conexão HTTP, retries exponenciais com backoff e timeout de 15s.
+  - *Risco de Dessincronização Temporal*: Indicadores possuem anos de referência distintos (Censo 2022 vs PIB 2002-2023 vs Estimativas 2001-2026). Mitigado pela modelagem de séries temporais com granularidade explícita (`ano_referencia`, `unidade`, `fonte_pesquisa`), proibindo o tratamento de anos diferentes como iguais.
+  - *Risco de Regressão*: Os dados territoriais existentes (`silver_municipio`, `gold_vw_*`) não podem sofrer interferência. Mitigado por módulos dedicados e testes de regressão automatizados.
+
+#### Subetapas Técnicas da FASE 10:
+
+1. **Subetapa 10.1 — Pesquisa, Homologação e Documentação Técnica das Fontes Oficiais**:
+   - Investigação de disponibilidade real para Mauá (`3529401`):
+     - População Censo 2022, Área Territorial e Densidade Demográfica (Agregado 4714).
+     - Série Histórica de População Estimada 2001-2026 (Agregado 6579).
+     - PIB Municipal e PIB per capita 2002-2023 (Pesquisa 38 / Agregado 5938).
+     - Taxa de Alfabetização Censo 2022 (Agregado 9543).
+     - População por Sexo e Idade Censo 2022 (Agregado 9514).
+   - Documentação detalhada dos contratos em `docs/doc_api.md`.
+   - Planejamento e checklist técnico no `PLAN.md`.
+   - *Status*: ✅ **Concluída**.
+
+2. **Subetapa 10.2 — Ampliação da Camada Bronze (Ingestão Socioeconômica)**:
+   - Implementação de cliente HTTP dedicado em `src/desafio_ibge/extraction/ibge_client.py` para Agregados (SIDRA v3) e Pesquisas com pooling, retry e logging.
+   - Criação da tabela relacional `bronze_ibge_socioeconomico` no SQLite com metadados de auditoria e checksum SHA-256 canônico.
+   - Carga idempotente dos payloads brutos com UPSERT baseado na chave composta `(municipio_id, indicador, periodo_referencia)`.
+   - Implementação de suite de testes automatizados com mocks (101 testes passando, 95% de cobertura).
+   - Ingestão real controlada e verificação de idempotência em duas rodadas consecutivas.
+   - *Status*: ✅ **Concluída**.
+
+3. **Subetapa 10.3 — Ampliação da Camada Silver (Normalização e Data Quality)**:
+   - Contratos Pydantic v2 para cada domínio de indicador (`PopulacaoSilverSchema`, `PIBSilverSchema`, `CensitarioSilverSchema`).
+   - Módulos Pandas de transformação para desaninhamento de séries temporais (`silver_ibge_populacao`, `silver_ibge_pib`, `silver_ibge_censitario`).
+   - Saneamento de tipos numéricos (`float64`, `int64`), remoção de nulos espúrios sem imputação indevida de zeros e validação de consistência.
+   - Persistência idempotente via UPSERT com isolamento garantido para `silver_municipio`.
+   - *Status*: ✅ **Concluída**.
+
+4. **Subetapa 10.4 — Ampliação da Camada Gold (Modelagem Analítica SQL)**:
+   - Criação de views analíticas: `gold_populacao_historica`, `gold_pib_historico`, `gold_demografia_sexo`, `gold_resumo_socioeconomico`.
+   - Métricas derivadas e regras de negócio: variação absoluta e percentual com `LAG()` particionado por metodologia, variação nominal do PIB corrente, participações setoriais relativas ao VAB Total e razão de sexo estatística oficial.
+   - Prevenção rigorosa contra divisão por zero via `NULLIF()` e preservação explícita de períodos de referência.
+   - Funções Python de consulta analítica e KPIs em `loading/storage.py` com tipagem forte e retorno em DataFrames Pandas.
+   - *Status*: ✅ **Concluída**.
+
+5. **Subetapa 10.5 — Integração no Orquestrador E2E (`main.py`) e Validação Integrada**:
+   - Integração coordenada dos fluxos Territorial (Localidades) e Socioeconômico (Agregados & Pesquisas) em `main.py`.
+   - Controle transacional estrito, fail-fast em etapas dependentes, logging estruturado com métricas de tempo e contagem de registros.
+   - Testes de integração ponta a ponta com mocks e validação real em duas rodadas comprovando idempotência total e saída com código `0`.
+   - *Status*: ✅ **Concluída**.
+
+6. **Subetapa 10.6 — Evolução do Dashboard Interativo (Streamlit & Plotly)**:
+   - Novas seções e abas: Visão Geral Territorial & Socioeconômica, Evolução Populacional, Economia (PIB & PIB per capita), Demografia & Alfabetização e Governança/Auditoria.
+   - Gráficos interativos com Plotly Express (evolução histórica, pirâmide/distribuição e cards analíticos).
+   - Testes unitários com Streamlit AppTest.
+   - *Status*: ⏳ **Pendente**.
+
+7. **Subetapa 10.7 — Documentação Técnica MkDocs e Homologação Final**:
+   - Atualização do site MkDocs (`architecture.md`, `storage.md`, `transformation.md`, `gold_analytics.md`, `dashboard.md`), `README.md` e checklist consolidado.
+   - Validação com pre-commit e suite completa de testes.
+   - *Status*: ⏳ **Pendente**.
+
+- **Checklist da Subetapa 10.1 (Concluída)**:
+  - [x] Investigar e testar endpoints reais da API de Agregados e Pesquisas do IBGE para Mauá (`3529401`).
+  - [x] Mapear códigos de agregados, variáveis, periodicidades e valores oficiais reais.
+  - [x] Atualizar o contrato técnico de dados em `docs/doc_api.md`.
+  - [x] Estruturar o planejamento técnico e subetapas no `PLAN.md`.
+  - [x] Executar verificações de qualidade (Ruff, Pytest, MkDocs build estrito).
+
+- **Checklist da Subetapa 10.2 (Concluída)**:
+  - [x] Implementar métodos de extração socioeconômica no `IBGEClient` (`fetch_censo_demografico_basico`, `fetch_populacao_estimada_historica`, `fetch_pib_historico`, `fetch_alfabetizacao`, `fetch_populacao_por_sexo`, `fetch_all_socioeconomico_maua`).
+  - [x] Criar DDL e tabela `bronze_ibge_socioeconomico` com chave composta `(municipio_id, indicador, periodo_referencia)`.
+  - [x] Implementar serialização determinística e cálculo do hash SHA-256 (`canonical_json_sha256`).
+  - [x] Implementar funções de persistência e leitura Bronze com UPSERT (`save_bronze_socioeconomico`, `read_bronze_socioeconomico`, `list_bronze_socioeconomico`, `save_all_socioeconomico_bronze`).
+  - [x] Criar testes unitários para extração (com `requests_mock`) e persistência (com SQLite temporário).
+  - [x] Executar validações de código (Ruff check, Ruff format, Pytest com 101 testes e 95% cobertura).
+  - [x] Executar ingestão real de Mauá em duas rodadas comprovando idempotência e integridade.
+
+- **Checklist da Subetapa 10.3 (Concluída)**:
+  - [x] Implementar contratos Pydantic v2: `PopulacaoSilverSchema`, `PIBSilverSchema`, `CensitarioSilverSchema` com validação de código IBGE de 7 dígitos, anos válidos e valores finitos não-nulos.
+  - [x] Implementar funções de normalização tabular com Pandas: `transform_bronze_populacao`, `transform_bronze_pib`, `transform_bronze_censitario` e orquestrador `transform_socioeconomico_from_bronze`.
+  - [x] Desaninhar séries temporais de Censo 2022 e Estimativas 2001-2026, séries econômicas de PIB 2002-2023 da Pesquisa 38 e indicadores de Área, Densidade, Alfabetização e Sexo.
+  - [x] Criar DDLs e tabelas Silver no SQLite com UPSERT idempotente: `silver_ibge_populacao`, `silver_ibge_pib`, `silver_ibge_censitario`.
+  - [x] Implementar funções de persistência e consulta: `save_silver_populacao`, `read_silver_populacao`, `save_silver_pib`, `read_silver_pib`, `save_silver_censitario`, `read_silver_censitario`, `save_all_socioeconomico_silver`.
+  - [x] Executar testes unitários e de integração adicionais (125 testes passando, 92% de cobertura).
+  - [x] Validar persistência real no banco `data/ibge_maua.db` gerando 23 registros de população, 227 de PIB e 5 censitários, comprovando total idempotência e preservação da camada `silver_municipio`.
+  - [x] Homologar qualidade com Ruff check, Ruff format, Pre-commit e MkDocs build estrito.
+
+- **Checklist da Subetapa 10.4 (Concluída)**:
+  - [x] Criar view `gold_populacao_historica` com cálculo de LAG particionado por `(municipio_id, tipo_populacao)`, variação absoluta, variação percentual e flag de anos consecutivos.
+  - [x] Criar view `gold_pib_historico` unificando séries de PIB a preços correntes (2002-2023), PIB per capita (2010-2023), VABs setoriais (2002-2021) e cálculo de participações relativas ao VAB Total.
+  - [x] Criar view `gold_demografia_sexo` apurando contagens absolutas de homens e mulheres, participações percentuais e razão de sexo estatística (92,82 homens / 100 mulheres) com `NULLIF()`.
+  - [x] Criar view `gold_resumo_socioeconomico` consolidando indicadores multitemáticos em formato longo preservando estritamente os anos de referência.
+  - [x] Sincronizar recriação idempotente das 6 views da camada Gold em `init_db`.
+  - [x] Implementar funções de leitura em Python em `loading/storage.py`: `read_gold_populacao_historica`, `read_gold_pib_historico`, `read_gold_demografia_sexo`, `read_gold_resumo_socioeconomico` e `get_kpis_socioeconomicos`.
+  - [x] Implementar suite completa de testes automatizados unitários e de integração (131 testes passando, 93% de cobertura).
+  - [x] Validar views diretamente contra o banco SQLite real `data/ibge_maua.db`.
+  - [x] Homologar qualidade de software com Ruff check, Ruff format, Pre-commit e MkDocs build estrito.
+
+- **Checklist da Subetapa 10.5 (Concluída)**:
+  - [x] Atualizar o orquestrador `src/desafio_ibge/main.py` com execução coordenada dos fluxos Territorial e Socioeconômico.
+  - [x] Implementar controle estrito de dependências (fail-fast: parada imediata com código 1 em falhas de extração, validação, Bronze ou Silver).
+  - [x] Adicionar método `fetch_all_socioeconomico_maua` na classe `IBGEClient` para suporte uniforme a mocks e instâncias reais.
+  - [x] Atualizar suíte de testes de integração em `tests/test_integration.py` cobrindo execução bem-sucedida, falhas em extração territorial/socioeconômica, falhas em camadas de storage e códigos de saída CLI.
+  - [x] Executar a suíte de testes automatizados com cobertura (`134 testes passando, 92% de cobertura global`).
+  - [x] Executar pipeline real em 2 rodadas consecutivas comprovando idempotência (código de saída `0`, zero duplicações no SQLite).
+  - [x] Homologar qualidade com Ruff check, Ruff format, Pre-commit e MkDocs build estrito (`task docs-build`).
+
+- **Checklist da Subetapa 10.6 (Concluída)**:
+  - [x] Evoluir o dashboard interativo `src/desafio_ibge/visualization/app.py` para arquitetura de 5 abas integradas.
+  - [x] **Aba 1 (Visão Geral)**: Cards estratégicos (população Censo 2022 e recente, PIB corrente, PIB per capita, área, densidade, alfabetização, razão de sexo com anos e fontes oficiais), identificação territorial e tabela analítica com busca e download CSV.
+  - [x] **Aba 2 (Evolução Populacional)**: Gráfico interativo Plotly Express com marcadores distinguindo Censo Demográfico vs Estimativa de População, filtro interativo de período via slider, métricas de variação absoluta/percentual no período, alerta metodológico explícito sobre anos não consecutivos e tabela detalhada.
+  - [x] **Aba 3 (Economia: PIB e PIB per capita)**: Gráficos de evolução temporal do PIB corrente e PIB per capita com Plotly Express, filtros de período, composição setorial do VAB (Agropecuária, Indústria, Serviços e Adm. Pública) e aviso metodológico sobre crescimento nominal a preços correntes vs real.
+  - [x] **Aba 4 (Demografia e Alfabetização)**: Gráfico de distribuição por sexo (rosca e barras comparativas), cards de Razão de Sexo (92,82 H/100 M), Taxa de Alfabetização (96,74%), Área Territorial (61,937 km²) e Densidade Demográfica (6.753,01 hab/km²).
+  - [x] **Aba 5 (Governança e Auditoria)**: Inventário físico de tabelas e views do SQLite com contagem volumétrica, métricas de Data Quality, latência média de carga, horários UTC de sincronização e catálogo metodológico das pesquisas do IBGE.
+  - [x] Adicionar funções de carga com cache `@st.cache_data(ttl=60)`: `load_populacao_historica_data`, `load_pib_historico_data`, `load_demografia_sexo_data`, `load_resumo_socioeconomico_data`, `load_kpis_socioeconomicos`, `load_tabelas_contagem`.
+  - [x] Atualizar suíte de testes de visualização em `tests/test_visualization.py` com cobertura de 96% do módulo `app.py`, 20 testes dedicados (incluindo `streamlit.testing.v1.AppTest` para bancos vazio, territorial e totalmente populado).
+  - [x] Validar suite global do projeto com 142 testes passando e 93% de cobertura global.
+  - [x] Homologar qualidade de software com Ruff check, Ruff format, Pre-commit e MkDocs build estrito (`task docs-build`).
+
+- **Checklist da Subetapa 10.7 (Pendente - Próxima)**:
+  - [ ] Atualização da documentação técnica e deploy no GitHub Pages.
+  - [ ] Documentar novos endpoints de agregados e pesquisas socioeconômicas em `docs/doc_api.md`.
+  - [ ] Documentar modelagem relacional expandida, schemas Pydantic v2 e views Gold em `docs/storage.md` e `docs/gold_analytics.md`.
+  - [ ] Documentar novas funcionalidades do dashboard e métricas em `docs/dashboard.md`.
+  - [ ] Atualizar guia de execução e arquitetura no `README.md`.
+  - [ ] Validar compilação estrita e publicação automática da documentação via CI/CD.

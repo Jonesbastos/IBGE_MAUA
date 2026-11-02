@@ -20,6 +20,29 @@ MAUA_NOME_ESPERADO = "Mauá"
 MAUA_UF_SIGLA_ESPERADA = "SP"
 MAUA_UF_ID_ESPERADO = 35
 
+# URLs de Agregados e Pesquisas do IBGE (Socioeconômico — FASE 10)
+IBGE_AGREGADOS_BASE_URL = "https://servicodados.ibge.gov.br/api/v3/agregados"
+IBGE_PESQUISAS_BASE_URL = "https://servicodados.ibge.gov.br/api/v1/pesquisas"
+
+# Endpoints oficiais homologados para Mauá (SP)
+MAUA_CENSO_2022_URL = (
+    f"{IBGE_AGREGADOS_BASE_URL}/4714/periodos/2022/variaveis/93|6318|614"
+    f"?localidades=N6[{MAUA_IBGE_CODE}]"
+)
+MAUA_POPULACAO_ESTIMADA_URL = (
+    f"{IBGE_AGREGADOS_BASE_URL}/6579/periodos/all/variaveis/9324"
+    f"?localidades=N6[{MAUA_IBGE_CODE}]"
+)
+MAUA_PIB_URL = f"{IBGE_PESQUISAS_BASE_URL}/38/resultados/{MAUA_IBGE_CODE}"
+MAUA_ALFABETIZACAO_URL = (
+    f"{IBGE_AGREGADOS_BASE_URL}/9543/periodos/2022/variaveis/2513"
+    f"?localidades=N6[{MAUA_IBGE_CODE}]"
+)
+MAUA_POPULACAO_SEXO_URL = (
+    f"{IBGE_AGREGADOS_BASE_URL}/9514/periodos/2022/variaveis/93"
+    f"?localidades=N6[{MAUA_IBGE_CODE}]&classificacao=2[4,5]|287[100362]"
+)
+
 # Configurações de rede
 DEFAULT_HTTP_TIMEOUT = (3.05, 10.0)
 DEFAULT_MAX_RETRIES = 3
