@@ -1654,3 +1654,107 @@ def test_get_metadados_governanca(test_db_path: Path) -> None:
     assert meta["pib_total_anos"] == 2
     assert meta["pib_total_indicadores"] == 2
     assert meta["total_silver"] == 4
+
+
+# ---------------------------------------------------------------------------
+# Testes de Snapshot e Portabilidade para Nuvem (Deploy Streamlit Cloud)
+# ---------------------------------------------------------------------------
+
+
+def test_export_and_restore_database_snapshot_roundtrip(
+    fully_populated_db_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Verifica exportação e restauração de snapshot SQL com integridade total."""
+    from desafio_ibge.loading.storage import (
+        export_database_snapshot,
+        restore_database_snapshot,
+    )
+
+    sql_target = tmp_path / "test_snapshot.sql"
+    exported_path = export_database_snapshot(
+        source_db=fully_populated_db_path,
+        target_sql=sql_target,
+    )
+    assert exported_path.exists()
+    assert exported_path.stat().st_size > 0
+
+    restored_db = tmp_path / "test_restored.db"
+    total_obj = restore_database_snapshot(
+        source_sql=exported_path,
+        target_db=restored_db,
+    )
+    assert total_obj >= 12  # 6 tabelas + 6 views
+
+    df_h = read_gold_hierarquia(db_path=restored_db)
+    assert not df_h.empty
+    assert df_h["municipio_nome"].iloc[0] == "Mauá"
+
+
+def test_export_database_snapshot_missing_source(tmp_path: Path) -> None:
+    """Testa erro amigável ao exportar snapshot de banco inexistente."""
+    from desafio_ibge.loading.storage import export_database_snapshot
+
+    with pytest.raises(FileNotFoundError, match="não encontrado"):
+        export_database_snapshot(
+            source_db=tmp_path / "nonexistent.db",
+            target_sql=tmp_path / "out.sql",
+        )
+
+
+def test_restore_database_snapshot_missing_sql(tmp_path: Path) -> None:
+    """Testa erro amigável ao restaurar de script SQL inexistente."""
+    from desafio_ibge.loading.storage import restore_database_snapshot
+
+    with pytest.raises(FileNotFoundError, match="não encontrado"):
+        restore_database_snapshot(
+            source_sql=tmp_path / "nonexistent.sql",
+            target_db=tmp_path / "out.db",
+        )
+
+
+def test_ensure_database_ready_with_existing_database(
+    fully_populated_db_path: Path,
+    tmp_path: Path,
+) -> None:
+    """Verifica que ensure_database_ready não altera banco já populado."""
+    from desafio_ibge.loading.storage import ensure_database_ready
+
+    ready = ensure_database_ready(db_path=fully_populated_db_path)
+    assert ready is True
+
+
+def test_ensure_database_ready_memory_returns_false() -> None:
+    """Verifica que ensure_database_ready não atua sobre banco :memory:."""
+    from desafio_ibge.loading.storage import ensure_database_ready
+
+    assert ensure_database_ready(db_path=":memory:") is False
+
+
+def test_ensure_database_ready_auto_restore_with_env(
+    fully_populated_db_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifica restauração automática acionada por IBGE_AUTO_RESTORE=1."""
+    from desafio_ibge.loading.storage import (
+        ensure_database_ready,
+        export_database_snapshot,
+    )
+
+    sql_target = tmp_path / "snapshot.sql"
+    export_database_snapshot(
+        source_db=fully_populated_db_path,
+        target_sql=sql_target,
+    )
+
+    new_db = tmp_path / "auto_restored.db"
+    assert not new_db.exists()
+
+    monkeypatch.setenv("IBGE_AUTO_RESTORE", "1")
+    ready = ensure_database_ready(db_path=new_db, snapshot_path=sql_target)
+    assert ready is True
+    assert new_db.exists()
+
+    df_h = read_gold_hierarquia(db_path=new_db)
+    assert not df_h.empty

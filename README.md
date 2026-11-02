@@ -3,11 +3,12 @@
 [![Python 3.13](https://img.shields.io/badge/python-3.13.13-blue.svg)](https://www.python.org/)
 [![Poetry](https://img.shields.io/badge/poetry-package%20manager-purple.svg)](https://python-poetry.org/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Coverage](https://img.shields.io/badge/coverage-93.19%25-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-93.44%25-brightgreen.svg)]()
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://jonesbastos.github.io/IBGE_MAUA/)
+[![Streamlit Cloud](https://img.shields.io/badge/streamlit-cloud%20ready-ff4b4b.svg)](https://streamlit.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Pipeline profissional de Engenharia de Dados desenvolvido em Python utilizando dados oficiais do IBGE sobre o município de **Mauá (SP)** (Código IBGE: `3529401`), estruturado sob o padrão **Medallion Architecture (Bronze, Silver e Gold)** no **SQLite**, validação de contratos de dados com **Pydantic v2**, normalização tabular de séries temporais com **Pandas** e dashboard analítico interativo em **Streamlit** e **Plotly Express**.
+Pipeline profissional de Engenharia de Dados desenvolvido em Python utilizando dados oficiais do IBGE sobre o município de **Mauá (SP)** (Código IBGE: `3529401`), estruturado sob o padrão **Medallion Architecture (Bronze, Silver e Gold)** no **SQLite**, validação de contratos de dados com **Pydantic v2**, normalização tabular de séries temporais com **Pandas** e dashboard analítico interativo em **Streamlit** e **Plotly Express**, preparado e homologado para publicação no **Streamlit Community Cloud**.
 
 ---
 
@@ -92,7 +93,9 @@ desafio_IBGE/
 │   └── workflows/
 │       └── deploy-docs.yml        # Pipeline de build estrito e deploy MkDocs
 ├── data/                          # Armazenamento local do SQLite (.gitignore)
-│   └── ibge_maua.db               # Banco de dados com as 6 tabelas e 6 views
+│   ├── ibge_maua.db               # Banco de dados local (ignorado pelo Git)
+│   └── snapshots/                 # Snapshots SQL versionados para deploy
+│       └── ibge_maua_snapshot.sql # Script SQL autocontido (DDLs + 322 registros)
 ├── docs/                          # Documentação técnica completa em MkDocs
 │   ├── architecture.md            # Arquitetura Medalhão detalhada
 │   ├── dashboard.md               # Especificação das 5 abas do Dashboard
@@ -106,17 +109,17 @@ desafio_IBGE/
 │   └── desafio_ibge/              # Pacote Python principal
 │       ├── config/                # Constantes, URLs oficiais e paths
 │       ├── extraction/            # Cliente HTTP com retries e timeouts
-│       ├── loading/               # Gerenciador SQLite, DDLs e Views Gold
+│       ├── loading/               # Gerenciador SQLite, DDLs, Views Gold e Snapshots
 │       ├── transformation/        # Desaninhamento e saneamento tabular
 │       ├── validation/            # Contratos Pydantic v2 de Data Quality
 │       ├── visualization/         # Dashboard interativo Streamlit & Plotly
 │       └── main.py                # Orquestrador unificado E2E com fail-fast
-├── tests/                         # Suite automatizada com 145 testes
+├── tests/                         # Suite automatizada com 152 testes
 │   ├── conftest.py                # Fixtures e payloads reais de Mauá
 │   ├── test_config.py             # Testes de configurações
 │   ├── test_extraction.py         # Testes de cliente HTTP com mocks
 │   ├── test_integration.py        # Testes de integração ponta a ponta
-│   ├── test_loading.py            # Testes de persistência Bronze, Silver e Gold
+│   ├── test_loading.py            # Testes de persistência Bronze, Silver, Gold e Snapshots
 │   ├── test_transformation.py     # Testes de validação e normalização
 │   └── test_visualization.py      # Testes do Dashboard com Streamlit AppTest
 ├── mkdocs.yml                     # Configuração do MkDocs Material
@@ -128,7 +131,7 @@ desafio_IBGE/
 
 ---
 
-## 3. Guia de Instalação e Execução
+## 3. Guia de Instalação e Execução Local
 
 ### Pré-requisitos
 - **Python**: `>=3.13,<4.0` (recomendado: Python `3.13.13` gerenciado via **Pyenv**)
@@ -152,7 +155,7 @@ poetry run task pipeline
 Esse comando orquestra o fluxo integrado de ponta a ponta:
 **Extração Territorial & Socioeconômica $\rightarrow$ Validação Pydantic v2 $\rightarrow$ Carga Bronze $\rightarrow$ Normalização Silver $\rightarrow$ Sincronização das 6 Views Gold $\rightarrow$ Auditoria Integrada**.
 
-### 3.3. Executar o Dashboard Analítico (Streamlit)
+### 3.3. Executar o Dashboard Analítico Localmente (Streamlit)
 ```bash
 poetry run streamlit run src/desafio_ibge/visualization/app.py
 # ou via atalho Taskipy:
@@ -160,7 +163,13 @@ poetry run task dashboard
 ```
 Acesse a aplicação interativa no navegador em `http://localhost:8501`.
 
-### 3.4. Executar Validações de Qualidade de Código e Testes
+### 3.4. Exportar Snapshot SQL Versionado
+```bash
+poetry run task export-snapshot
+```
+Gera ou atualiza o arquivo `data/snapshots/ibge_maua_snapshot.sql` (~98 KB) contendo o DDL e todos os dados conformed/views das camadas Bronze, Silver e Gold.
+
+### 3.5. Executar Validações de Qualidade de Código e Testes
 ```bash
 # Checagem estática com Ruff
 poetry run ruff check .
@@ -168,11 +177,11 @@ poetry run ruff check .
 # Formatação automática de código
 poetry run ruff format .
 
-# Suite completa de testes automatizados com cobertura (mínimo 50%)
+# Suite completa de testes automatizados com cobertura (152 testes, >93% de cobertura)
 poetry run task test
 ```
 
-### 3.5. Documentação Técnica e Publicação Contínua (GitHub Pages)
+### 3.6. Documentação Técnica e Publicação Contínua (GitHub Pages)
 
 #### Visualização e Compilação Local (Taskipy)
 ```bash
@@ -190,7 +199,61 @@ O projeto conta com uma esteira de CI/CD em [`.github/workflows/deploy-docs.yml`
 
 ---
 
-## 4. Governança e Fidelidade aos Dados
+## 4. Deploy no Streamlit Community Cloud
+
+O dashboard foi projetado para execução resiliente, stateless e de alto desempenho no **Streamlit Community Cloud**, sem necessidade de infraestrutura paga ou dependências de banco em nuvem externo.
+
+### 4.1. Estratégia de Disponibilização dos Dados (Snapshot SQL)
+
+O banco local `data/ibge_maua.db` é mantido sob `.gitignore` para prevenir versionamento de arquivos binários. Para que o dashboard opere imediatamente na nuvem com dados homologados:
+
+1. **Snapshot SQL Versionado**: O repositório versiona o arquivo `data/snapshots/ibge_maua_snapshot.sql` (~98 KB em texto puro UTF-8).
+2. **Auto-Restaurador `ensure_database_ready()`**: Ao inicializar no container da nuvem, a aplicação detecta a ausência do arquivo local `data/ibge_maua.db` e recria instantaneamente todas as 6 tabelas e 6 views a partir do snapshot em menos de **20 milissegundos**.
+3. **Zero Chamadas à API no Início**: O dashboard não executa requisições HTTP para a API do IBGE na inicialização, eliminando riscos de indisponibilidade, latência ou rate limiting upstream.
+4. **Sem Credenciais ou Segredos**: Os dados municipais são 100% públicos e auditáveis; nenhuma chave de API ou credencial sensível é requerida.
+
+### 4.2. Procedimento Passo a Passo de Deploy
+
+1. Acesse o painel do [Streamlit Community Cloud](https://share.streamlit.io/) e clique em **"Create app"**.
+2. Selecione a opção **"Deploy a public app from GitHub"**.
+3. Configure os parâmetros da aplicação:
+   - **Repository**: `Jonesbastos/IBGE_MAUA`
+   - **Branch**: `main` (ou `dev`)
+   - **Main file path**: `src/desafio_ibge/visualization/app.py`
+   - **App URL**: `ibge-maua.streamlit.app` (ou subdomínio à sua escolha)
+4. Em **Advanced Settings**:
+   - **Python Version**: Selecione **`3.13`** (conforme especificado no `pyproject.toml`).
+   - Não é necessário preencher Secrets.
+5. Clique em **"Deploy"**.
+
+### 4.3. Gerenciamento de Dependências no Deploy
+
+- O Streamlit Community Cloud reconhece nativamente os arquivos `pyproject.toml` e `poetry.lock`, instalando as dependências de produção (`streamlit`, `plotly`, `pandas`, `pydantic`, `requests`) via Poetry, sem a necessidade de manter arquivos `requirements.txt` redundantes.
+- O arquivo `src/desafio_ibge/visualization/app.py` inclui resolução defensiva de `sys.path`, garantindo a importação direta do pacote `desafio_ibge` em qualquer ambiente Linux ou container.
+
+### 4.4. Procedimento de Atualização dos Indicadores
+
+Sempre que novas pesquisas ou estimativas forem divulgadas pelo IBGE:
+```bash
+# 1. Executar a ingestão e atualização completa local
+poetry run task pipeline
+
+# 2. Exportar o novo snapshot SQL sincronizado
+poetry run task export-snapshot
+
+# 3. Validar qualidade e suite de testes
+poetry run task test
+
+# 4. Enviar para o repositório GitHub
+git add data/snapshots/ibge_maua_snapshot.sql
+git commit -m "feat(data): atualiza snapshot socioeconomico de Maua"
+git push origin main
+```
+O Streamlit Community Cloud detectará o novo commit e recarregará automaticamente o dashboard com os dados atualizados.
+
+---
+
+## 5. Governança e Fidelidade aos Dados
 
 > [!IMPORTANT]
 > **Fidelidade Estrita aos Dados Oficiais do IBGE**:

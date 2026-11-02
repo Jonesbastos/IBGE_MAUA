@@ -504,3 +504,38 @@ flowchart LR
   - [x] Validar compilação estrita e publicação automática da documentação via CI/CD (`poetry run task docs-build`).
   - [x] Executar validação de código (Ruff check, Ruff format, Pytest com 145 testes e >93% de cobertura).
   - [x] Executar dupla rodada do pipeline de dados comprovando idempotência total (322 registros físicos inalterados).
+
+
+---
+
+### FASE 11 — Preparação do Deploy Streamlit Community Cloud (Concluída)
+
+- **Objetivo**: Preparar, homologar e documentar a publicação do dashboard interativo do `desafio_IBGE` no Streamlit Community Cloud, garantindo carregamento instantâneo dos dados da camada Gold, resiliência na nuvem, compatibilidade com Linux/containers e zero dependência de serviços externos complexos ou execução da API do IBGE na abertura do app.
+- **Pré-requisitos**: Fases 1 a 10.7 formalmente concluídas e auditadas.
+- **Decisão Arquitetural — Estratégia de Disponibilização dos Dados**:
+  - *Alternativa 1 (Escolhida)*: **Snapshot SQL Versionado (`data/snapshots/ibge_maua_snapshot.sql`)**. Arquivo texto puro UTF-8 (~98 KB) contendo DDLs e INSERTs de todos os 322 registros consolidados. Auto-restauração sob demanda via `ensure_database_ready()` em < 20 ms se `data/ibge_maua.db` não existir. 100% público, auditável, versionado no Git sem violar o `.gitignore` que protege arquivos `.db`.
+  - *Alternativa 2 (Rejeitada)*: **Armazenamento Externo Persistente (S3/Turso/Supabase)**. Adicionaria latência de rede em cada consulta, custos potenciais, chaves/segredos no Streamlit Secrets e dependência de serviços de terceiros para um projeto de portfólio de 322 registros.
+  - *Alternativa 3 (Rejeitada)*: **Banco SQLite Binário no Deploy**. Exigiria quebrar a regra de ouro do `.gitignore` para versionar arquivos binários `.db`, inflando o histórico do Git e impedindo revisão por git diff.
+- **Atividades Técnicas Concluídas**:
+  1. Adição de `SNAPSHOTS_DIR` e `DEFAULT_SNAPSHOT_PATH` no `config/settings.py`.
+  2. Implementação das funções `export_database_snapshot`, `restore_database_snapshot` e `ensure_database_ready` no `loading/storage.py`.
+  3. Exportação dos métodos no módulo `desafio_ibge.loading`.
+  4. Injeção defensiva de `sys.path` e chamada a `ensure_database_ready()` na inicialização de `src/desafio_ibge/visualization/app.py`.
+  5. Criação do snapshot oficial inicial `data/snapshots/ibge_maua_snapshot.sql` (~98 KB).
+  6. Configuração da tarefa `export-snapshot` no Taskipy (`pyproject.toml`).
+  7. Implementação de testes automatizados dedicados para export/restore de snapshots e validação de inicialização via `streamlit.testing.v1.AppTest` em ambiente limpo de deploy simulado.
+  8. Atualização do `README.md` com instruções detalhadas de deploy, dependências, fluxo de atualização e limites operacionais.
+- **Checklist da FASE 11 (Concluída)**:
+  - [x] Avaliar e comparar as 3 alternativas de persistência e disponibilidade de dados para deploy na nuvem.
+  - [x] Implementar rotina de snapshot SQL e auto-restauração transparente e rápida (`ensure_database_ready`).
+  - [x] Garantir compatibilidade multiplataforma (Windows/Linux) via `pathlib.Path` e caminhos relativos ao projeto.
+  - [x] Assegurar resolução de `sys.path` no `app.py` para importação direta do pacote `desafio_ibge`.
+  - [x] Criar tarefa `poetry run task export-snapshot` para manutenção de novos dados.
+  - [x] Criar suite de testes automatizados cobrindo roundtrip de snapshot e AppTest em deploy simulado (152 testes passando, 93.44% de cobertura).
+  - [x] Validar conformidade de código com `poetry check`, `poetry run ruff check .` e `poetry run ruff format --check .`.
+  - [x] Atualizar `README.md` com guia passo a passo para o Streamlit Community Cloud.
+- **Critérios de Aceitação**:
+  - Dashboard inicializa perfeitamente mesmo quando `data/ibge_maua.db` não existe previamente.
+  - Zero chamadas HTTP para o IBGE durante a inicialização do dashboard.
+  - Testes automatizados verdes com cobertura superior a 50% (93.44% alcançado).
+  - Repositório pronto para publicação imediata no Streamlit Community Cloud.

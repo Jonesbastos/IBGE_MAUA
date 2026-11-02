@@ -7,6 +7,7 @@ demografia censitária e governança da Medallion Architecture para Mauá (SP).
 
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -14,13 +15,19 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from desafio_ibge.config.settings import (
+# Garantir que o diretório 'src' esteja acessível no sys.path em ambientes de deploy
+_SRC_DIR = Path(__file__).resolve().parent.parent.parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+from desafio_ibge.config.settings import (  # noqa: E402
     DEFAULT_DB_PATH,
     IBGE_BASE_URL,
     MAUA_DIRECT_URL,
     MAUA_IBGE_CODE,
 )
-from desafio_ibge.loading import (
+from desafio_ibge.loading import (  # noqa: E402
+    ensure_database_ready,
     get_kpis_geograficos,
     get_kpis_qualidade,
     get_kpis_socioeconomicos,
@@ -1224,6 +1231,9 @@ def main(db_path: Path | str | None = None) -> None:
     )
 
     resolved_db_path = str(db_path or os.environ.get("IBGE_DB_PATH") or DEFAULT_DB_PATH)
+
+    # Garante disponibilidade dos dados via snapshot versionado (sem rede)
+    ensure_database_ready(resolved_db_path)
 
     render_header()
     render_sidebar(resolved_db_path)
