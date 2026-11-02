@@ -375,7 +375,7 @@ flowchart LR
 
 ---
 
-### FASE 10 — Enriquecimento de Dados Socioeconômicos de Mauá (SP)
+### FASE 10 — Enriquecimento de Dados Socioeconômicos de Mauá (SP) (Concluída)
 
 - **Objetivo**: Enriquecer o ecossistema do `desafio_IBGE` com indicadores socioeconômicos reais e auditáveis de Mauá (SP) através da API de Agregados (SIDRA v3) e API de Pesquisas do IBGE, implementando séries temporais, novas tabelas Medalhão (Bronze, Silver e Gold), orquestração integrada e visualizações analíticas no Dashboard.
 - **Pré-requisitos**: Fases 1 a 9.1 consolidadas e operacionais.
@@ -429,12 +429,13 @@ flowchart LR
    - Novas seções e abas: Visão Geral Territorial & Socioeconômica, Evolução Populacional, Economia (PIB & PIB per capita), Demografia & Alfabetização e Governança/Auditoria.
    - Gráficos interativos com Plotly Express (evolução histórica, pirâmide/distribuição e cards analíticos).
    - Testes unitários com Streamlit AppTest.
-   - *Status*: ⏳ **Pendente**.
+   - *Status*: ✅ **Concluída**.
 
 7. **Subetapa 10.7 — Documentação Técnica MkDocs e Homologação Final**:
-   - Atualização do site MkDocs (`architecture.md`, `storage.md`, `transformation.md`, `gold_analytics.md`, `dashboard.md`), `README.md` e checklist consolidado.
-   - Validação com pre-commit e suite completa de testes.
-   - *Status*: ⏳ **Pendente**.
+   - Atualização do site MkDocs (`index.md`, `architecture.md`, `doc_api.md`, `storage.md`, `transformation.md`, `gold_analytics.md`, `dashboard.md`, `pipeline.md`), `README.md` e checklist consolidado.
+   - Validação integrada com Ruff, Pytest (145 testes, >93% cobertura) e compilação estrita MkDocs (`task docs-build`).
+   - Validação de idempotência em duas rodadas consecutivas comprovando estabilidade dos 322 registros físicos no SQLite.
+   - *Status*: ✅ **Concluída**.
 
 - **Checklist da Subetapa 10.1 (Concluída)**:
   - [x] Investigar e testar endpoints reais da API de Agregados e Pesquisas do IBGE para Mauá (`3529401`).
@@ -494,10 +495,12 @@ flowchart LR
   - [x] Validar suite global do projeto com 142 testes passando e 93% de cobertura global.
   - [x] Homologar qualidade de software com Ruff check, Ruff format, Pre-commit e MkDocs build estrito (`task docs-build`).
 
-- **Checklist da Subetapa 10.7 (Pendente - Próxima)**:
-  - [ ] Atualização da documentação técnica e deploy no GitHub Pages.
-  - [ ] Documentar novos endpoints de agregados e pesquisas socioeconômicas em `docs/doc_api.md`.
-  - [ ] Documentar modelagem relacional expandida, schemas Pydantic v2 e views Gold em `docs/storage.md` e `docs/gold_analytics.md`.
-  - [ ] Documentar novas funcionalidades do dashboard e métricas em `docs/dashboard.md`.
-  - [ ] Atualizar guia de execução e arquitetura no `README.md`.
-  - [ ] Validar compilação estrita e publicação automática da documentação via CI/CD.
+- **Checklist da Subetapa 10.7 (Concluída)**:
+  - [x] Atualização completa de todos os 8 documentos do site MkDocs (`index.md`, `architecture.md`, `doc_api.md`, `transformation.md`, `storage.md`, `gold_analytics.md`, `dashboard.md`, `pipeline.md`).
+  - [x] Documentar novos endpoints de agregados e pesquisas socioeconômicas em `docs/doc_api.md`.
+  - [x] Documentar modelagem relacional expandida, schemas Pydantic v2 e views Gold em `docs/storage.md`, `docs/transformation.md` e `docs/gold_analytics.md`.
+  - [x] Documentar novas funcionalidades do dashboard e métricas das 5 abas em `docs/dashboard.md`.
+  - [x] Atualizar guia de execução, arquitetura, badges e governança no `README.md`.
+  - [x] Validar compilação estrita e publicação automática da documentação via CI/CD (`poetry run task docs-build`).
+  - [x] Executar validação de código (Ruff check, Ruff format, Pytest com 145 testes e >93% de cobertura).
+  - [x] Executar dupla rodada do pipeline de dados comprovando idempotência total (322 registros físicos inalterados).

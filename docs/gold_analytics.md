@@ -1,279 +1,153 @@
 # Modelagem Analítica SQL — Camada Gold (Views e Métricas)
 
-A **Camada Gold** representa o nível de consumo analítico da *Medallion Architecture* no projeto **`desafio_IBGE`**.
-
-Implementada inteiramente via **SQL Views** sobre o banco relacional SQLite local (`data/ibge_maua.db`), a camada Gold disponibiliza dados modelados, rotulados e agregados com custo zero de duplicação de dados em disco, servindo como camada semântica e contrato oficial para o futuro Dashboard interativo em Streamlit.
+> **Camada do Pipeline**: Gold / Analytical & Consumption
+> **Engine**: SQLite (`data/ibge_maua.db`)
+> **Implementação**: SQL Views Declarativas (`CREATE VIEW IF NOT EXISTS`)
+> **Status**: Homologado e Operacional
 
 ---
 
 ## 1. Visão Geral e Princípios de Design
 
-1. **Sem Redundância Física**: Construída exclusivamente sobre SQL Views (`CREATE VIEW`), consumindo dinamicamente as camadas Silver e Bronze.
-2. **Separação de Preocupações**:
-   - `gold_vw_municipio_hierarquia`: Foco no consumo analítico territorial e visualização.
-   - `gold_vw_qualidade_auditoria`: Foco em governança, integridade referencial, detecção de nulos e latência.
-3. **Fidelidade Estrita aos Dados**: Nenhuma coluna fictícia (PIB, população, renda) é inferida ou simulada. Reflete estritamente os atributos oficiais da API de Localidades do IBGE.
-4. **Resiliência a Órfãos**: A view de auditoria implementa a semântica de `FULL OUTER JOIN` via `UNION ALL`, identificando tanto registros presentes na Bronze e ausentes na Silver (`AUSENTE_NA_SILVER`) quanto registros na Silver sem lastro bruto (`AUSENTE_NA_BRONZE`).
+A **Camada Gold** representa o nível de consumo analítico da *Medallion Architecture* no projeto **`desafio_IBGE`**.
+
+Implementada inteiramente via **SQL Views** sobre as tabelas normalizadas da camada Silver e metadados da camada Bronze, a camada Gold disponibiliza modelos semânticos prontos para consumo com custo zero de redundância em disco.
+
+### Princípios de Engenharia Adotados:
+1. **Zero Redundância Física**: Nenhuma tabela física duplicada; todas as estruturas são computadas sob demanda via views SQL.
+2. **Defesa Contra Divisão por Zero**: Aplicação compulsória de `NULLIF(divisor, 0)` em todos os cálculos percentuais e razões estatísticas.
+3. **Janelamento com Particionamento Metodológico**: Cálculo de variações anuais (`LAG()`) particionado por tipo de metodologia (`CENSO` vs `ESTIMATIVA`), prevenindo variações espúrias entre bases distintas.
+4. **Preservação Temporal Estrita**: Todo indicador consolidado mantém a associação indelével com seu respectivo `ano_referencia` e `fonte_pesquisa`.
 
 ---
 
-## 2. View Analítica: `gold_vw_municipio_hierarquia`
+## 2. Catálogo das 6 Views da Camada Gold
 
-### 2.1. Objetivo e Grão
-Consolidar a árvore territorial do município em rótulos amigáveis e padronizados em `snake_case`, unificando a **Divisão Regional de 1989** (Mesorregião e Microrregião) e a **Divisão Regional de 2017** (Região Intermediária e Região Imediata).
+```mermaid
+flowchart TD
+    subgraph SilverLayer ["🥈 Camada Silver"]
+        S_MUN["silver_municipio"]
+        S_POP["silver_ibge_populacao"]
+        S_PIB["silver_ibge_pib"]
+        S_CENS["silver_ibge_censitario"]
+    end
 
-- **Grão**: 1 linha por município (`municipio_id`).
+    subgraph GoldViews ["🥇 Camada Gold (Views)"]
+        G_HIER["gold_vw_municipio_hierarquia<br>(Árvore Territorial)"]
+        G_AUD["gold_vw_qualidade_auditoria<br>(Data Quality & Linhagem)"]
+        G_POP["gold_populacao_historica<br>(LAG Crescimento Anual)"]
+        G_PIB["gold_pib_historico<br>(PIB, Per Capita & VABs)"]
+        G_DEMO["gold_demografia_sexo<br>(Razão de Sexo & Gênero)"]
+        G_RES["gold_resumo_socioeconomico<br>(Síntese Executiva)"]
+    end
 
-### 2.2. Dicionário de Dados
-
-| Coluna | Tipo SQLite | Descrição Técnica | Exemplo (Mauá) |
-| :--- | :--- | :--- | :--- |
-| `municipio_id` | `INTEGER` | Código IBGE oficial do município (7 dígitos) | `3529401` |
-| `municipio_nome` | `TEXT` | Nome oficial do município com acentuação correta | `Mauá` |
-| `uf_id` | `INTEGER` | Código da Unidade Federativa | `35` |
-| `uf_sigla` | `TEXT` | Sigla da Unidade Federativa | `SP` |
-| `uf_nome` | `TEXT` | Nome completo do estado | `São Paulo` |
-| `regiao_id` | `INTEGER` | Código da Macrorregião do Brasil | `3` |
-| `regiao_sigla` | `TEXT` | Sigla da Macrorregião | `SE` |
-| `regiao_nome` | `TEXT` | Nome oficial da grande região | `Sudeste` |
-| `regiao_imediata_id` | `INTEGER` | Identificador da Região Geográfica Imediata (2017) | `350001` |
-| `regiao_imediata_nome` | `TEXT` | Nome da Região Geográfica Imediata | `São Paulo` |
-| `regiao_intermediaria_id` | `INTEGER` | Identificador da Região Intermediária (2017) | `3501` |
-| `regiao_intermediaria_nome` | `TEXT` | Nome da Região Geográfica Intermediária | `São Paulo` |
-| `microrregiao_id` | `INTEGER` | Identificador da Microrregião (1989) | `35061` |
-| `microrregiao_nome` | `TEXT` | Nome da Microrregião | `São Paulo` |
-| `mesorregiao_id` | `INTEGER` | Identificador da Mesorregião (1989) | `3515` |
-| `mesorregiao_nome` | `TEXT` | Nome da Mesorregião | `Metropolitana de São Paulo` |
-| `transformed_at` | `TEXT` | Timestamp UTC em que a linha Silver foi gerada | `2026-10-30T20:20:00+00:00` |
-
-### 2.3. Código SQL DDL
-
-```sql
-CREATE VIEW IF NOT EXISTS gold_vw_municipio_hierarquia AS
-SELECT
-    id AS municipio_id,
-    nome AS municipio_nome,
-    microrregiao_mesorregiao_uf_id AS uf_id,
-    microrregiao_mesorregiao_uf_sigla AS uf_sigla,
-    microrregiao_mesorregiao_uf_nome AS uf_nome,
-    microrregiao_mesorregiao_uf_regiao_id AS regiao_id,
-    microrregiao_mesorregiao_uf_regiao_sigla AS regiao_sigla,
-    microrregiao_mesorregiao_uf_regiao_nome AS regiao_nome,
-    regiao_imediata_id AS regiao_imediata_id,
-    regiao_imediata_nome AS regiao_imediata_nome,
-    regiao_imediata_regiao_intermediaria_id AS regiao_intermediaria_id,
-    regiao_imediata_regiao_intermediaria_nome AS regiao_intermediaria_nome,
-    microrregiao_id AS microrregiao_id,
-    microrregiao_nome AS microrregiao_nome,
-    microrregiao_mesorregiao_id AS mesorregiao_id,
-    microrregiao_mesorregiao_nome AS mesorregiao_nome,
-    transformed_at
-FROM silver_municipio;
+    S_MUN --> G_HIER
+    S_MUN --> G_AUD
+    S_POP --> G_POP
+    S_PIB --> G_PIB
+    S_CENS --> G_DEMO
+    S_POP & S_PIB & S_CENS --> G_RES
 ```
 
 ---
 
-## 3. View de Qualidade e Governança: `gold_vw_qualidade_auditoria`
+## 3. Especificação Detalhada das Views SQL
 
-### 3.1. Objetivo e Grão
-Cruzar as informações operacionais da camada Bronze (`bronze_ibge_raw`) e da camada Silver (`silver_municipio`), expondo métricas atômicas de qualidade de dados (Data Quality), conformidade de schema, integridade de checksums e latência de processamento.
+### 3.1. `gold_vw_municipio_hierarquia` (Territorial)
+Consolida a árvore territorial de Mauá integrando a divisão tradicional (1989) e contemporânea (2017):
+- **Grão**: 1 linha por município (`municipio_id = 3529401`).
+- **Campos**: Códigos e descrições de Município, UF, Macrorregião, Mesorregião, Microrregião, Região Imediata e Região Intermediária, além de `transformed_at`.
 
-- **Grão**: 1 linha por registro/município sob governança no ecossistema de dados.
+### 3.2. `gold_vw_qualidade_auditoria` (Governança & Data Quality)
+Cruza as tabelas `bronze_ibge_raw` e `silver_municipio` implementando `FULL OUTER JOIN` via `UNION ALL`:
+- **Grão**: 1 linha por entidade cadastral.
+- **Métricas**:
+  - `status_integracao`: `'CONFORME'`, `'AUSENTE_NA_SILVER'` ou `'AUSENTE_NA_BRONZE'`.
+  - `flag_codigo_ibge_valido`: Validação de 7 dígitos (`BETWEEN 1000000 AND 9999999`).
+  - `flag_checksum_valido`: Confirmação do tamanho exato de 64 caracteres do hash SHA-256.
+  - `flag_http_ok`: Código de resposta igual a 200.
+  - `flag_campos_obrigatorios_nulos`: Alerta de nulos em atributos obrigatórios.
+  - `flag_consistencia_geografica`: Verificação de coincidência de UF e Região entre divisões de 1989 e 2017.
+  - `latencia_processamento_segundos`: Diferença calculada via `julianday`.
 
-### 3.2. Dicionário de Dados e Regras de Negócio
+### 3.3. `gold_populacao_historica` (Série Histórica Populacional)
+Série temporal anual unindo Censo e Estimativas com cálculo de crescimento:
+- **Janelamento**:
+  ```sql
+  LAG(populacao, 1) OVER (
+      PARTITION BY municipio_id, tipo_populacao
+      ORDER BY ano ASC
+  ) AS populacao_ano_anterior
+  ```
+- **Métricas Derivadas**:
+  - `crescimento_absoluto_ano_anterior = populacao - populacao_ano_anterior`
+  - `crescimento_percentual_ano_anterior = ROUND(((populacao - populacao_ano_anterior) * 100.0) / NULLIF(populacao_ano_anterior, 0), 2)`
+  - `flag_ano_consecutivo`: `1` se `ano - ano_anterior == 1`, `0` caso contrário (alerta de descontinuidade).
 
-| Coluna | Tipo SQLite | Regra Técnica / Descrição |
-| :--- | :--- | :--- |
-| `bronze_ibge_id` | `INTEGER` | Chave primária da camada Bronze (`NULL` se órfão na Silver) |
-| `silver_id` | `INTEGER` | Chave primária da camada Silver (`NULL` se órfão na Bronze) |
-| `municipio_id` | `INTEGER` | Código do município unificado via `COALESCE(b.ibge_id, s.id)` |
-| `municipio_nome` | `TEXT` | Nome do município na Silver (`'NÃO DISPONÍVEL NA SILVER'` se pendente) |
-| `endpoint_url` | `TEXT` | URL original consultada na API do IBGE |
-| `http_status` | `INTEGER` | Código de retorno HTTP da extração |
-| `checksum_sha256` | `TEXT` | Hash SHA-256 do payload JSON bruto |
-| `ingestion_timestamp` | `TEXT` | Timestamp UTC da coleta na camada Bronze |
-| `transformed_at` | `TEXT` | Timestamp UTC da transformação e carga na Silver |
-| `flag_presente_bronze` | `INTEGER` | `1` se existe registro bruto na Bronze, `0` caso contrário |
-| `flag_presente_silver` | `INTEGER` | `1` se existe registro estruturado na Silver, `0` caso contrário |
-| `status_integracao` | `TEXT` | `'CONFORME'`, `'AUSENTE_NA_SILVER'` ou `'AUSENTE_NA_BRONZE'` |
-| `flag_codigo_ibge_valido` | `INTEGER` | `1` se o código possui 7 dígitos (entre 1000000 e 9999999), `0` caso contrário |
-| `flag_checksum_valido` | `INTEGER` | `1` se o hash SHA-256 possui exatamente 64 caracteres hexadecimais |
-| `flag_http_ok` | `INTEGER` | `1` se `http_status == 200`, `0` caso contrário |
-| `flag_campos_obrigatorios_nulos` | `INTEGER` | `1` se algum campo obrigatório na Silver (`nome`, `uf`, regiões) for nulo/vazio, `0` se íntegro |
-| `flag_consistencia_geografica` | `INTEGER` | `1` se a UF e Região Macro coincidem entre divisões 1989 e 2017; `NULL` se não estiver na Silver |
-| `latencia_processamento_segundos` | `REAL` | Diferença em segundos: `(julianday(transformed_at) - julianday(ingestion_timestamp)) * 86400` |
+### 3.4. `gold_pib_historico` (Série Econômica e Participações Setoriais)
+Pivoteamento analítico das séries de Contas Regionais (1999–2023):
+- **Rubricas**: PIB a preços correntes (mil R$), PIB per capita (R$), Impostos líquidos e VABs de Agropecuária, Indústria, Serviços e Administração Pública.
+- **Participações Calculadas com Proteção `NULLIF`**:
+  - `pct_vab_agropecuaria = ROUND((vab_agropecuaria * 100.0) / NULLIF(vab_total, 0), 2)`
+  - `pct_vab_industria = ROUND((vab_industria * 100.0) / NULLIF(vab_total, 0), 2)`
+  - `pct_vab_servicos = ROUND((vab_servicos * 100.0) / NULLIF(vab_total, 0), 2)`
+  - `pct_vab_administracao_publica = ROUND((vab_administracao_publica * 100.0) / NULLIF(vab_total, 0), 2)`
 
-### 3.3. Código SQL DDL
+### 3.5. `gold_demografia_sexo` (Estrutura de Gênero do Censo 2022)
+Apura a distribuição censitária por sexo e a Razão de Sexo oficial de Mauá:
+- **População de Homens**: `201.348` (48,14%)
+- **População de Mulheres**: `216.913` (51,86%)
+- **Total Censitário**: `418.261` habitantes
+- **Razão de Sexo**:
+  ```sql
+  ROUND((populacao_homens * 100.0) / NULLIF(populacao_mulheres, 0), 2)
+  -- Resultado: 92.82 homens por 100 mulheres
+  ```
 
-```sql
-CREATE VIEW IF NOT EXISTS gold_vw_qualidade_auditoria AS
-SELECT
-    b.ibge_id AS bronze_ibge_id,
-    s.id AS silver_id,
-    COALESCE(b.ibge_id, s.id) AS municipio_id,
-    COALESCE(s.nome, 'NÃO DISPONÍVEL NA SILVER') AS municipio_nome,
-    b.endpoint_url,
-    b.http_status,
-    b.checksum_sha256,
-    b.ingestion_timestamp,
-    s.transformed_at,
-    CASE WHEN b.ibge_id IS NOT NULL THEN 1 ELSE 0 END AS flag_presente_bronze,
-    CASE WHEN s.id IS NOT NULL THEN 1 ELSE 0 END AS flag_presente_silver,
-    CASE
-        WHEN b.ibge_id IS NOT NULL AND s.id IS NOT NULL THEN 'CONFORME'
-        WHEN b.ibge_id IS NOT NULL AND s.id IS NULL THEN 'AUSENTE_NA_SILVER'
-        WHEN b.ibge_id IS NULL AND s.id IS NOT NULL THEN 'AUSENTE_NA_BRONZE'
-        ELSE 'INDEFINIDO'
-    END AS status_integracao,
-    CASE
-        WHEN (b.ibge_id BETWEEN 1000000 AND 9999999)
-             OR (s.id BETWEEN 1000000 AND 9999999)
-        THEN 1
-        ELSE 0
-    END AS flag_codigo_ibge_valido,
-    CASE
-        WHEN b.checksum_sha256 IS NOT NULL AND length(b.checksum_sha256) = 64
-        THEN 1
-        ELSE 0
-    END AS flag_checksum_valido,
-    CASE
-        WHEN b.http_status = 200 THEN 1
-        ELSE 0
-    END AS flag_http_ok,
-    CASE
-        WHEN s.id IS NOT NULL AND (
-            s.nome IS NULL OR trim(s.nome) = '' OR
-            s.microrregiao_id IS NULL OR
-            s.microrregiao_mesorregiao_uf_sigla IS NULL OR
-            s.regiao_imediata_id IS NULL
-        ) THEN 1
-        ELSE 0
-    END AS flag_campos_obrigatorios_nulos,
-    CASE
-        WHEN s.id IS NOT NULL AND (
-            s.microrregiao_mesorregiao_uf_sigla =
-                s.regiao_imediata_regiao_intermediaria_uf_sigla
-            AND s.microrregiao_mesorregiao_uf_regiao_sigla =
-                s.regiao_imediata_regiao_intermediaria_uf_regiao_sigla
-        ) THEN 1
-        WHEN s.id IS NOT NULL THEN 0
-        ELSE NULL
-    END AS flag_consistencia_geografica,
-    CASE
-        WHEN b.ingestion_timestamp IS NOT NULL AND s.transformed_at IS NOT NULL
-        THEN ROUND(
-            (julianday(s.transformed_at) - julianday(b.ingestion_timestamp)) * 86400.0,
-            2
-        )
-        ELSE NULL
-    END AS latencia_processamento_segundos
-FROM bronze_ibge_raw b
-LEFT JOIN silver_municipio s ON b.ibge_id = s.id
-
-UNION ALL
-
-SELECT
-    NULL AS bronze_ibge_id,
-    s.id AS silver_id,
-    s.id AS municipio_id,
-    s.nome AS municipio_nome,
-    NULL AS endpoint_url,
-    NULL AS http_status,
-    NULL AS checksum_sha256,
-    NULL AS ingestion_timestamp,
-    s.transformed_at,
-    0 AS flag_presente_bronze,
-    1 AS flag_presente_silver,
-    'AUSENTE_NA_BRONZE' AS status_integracao,
-    CASE
-        WHEN s.id BETWEEN 1000000 AND 9999999 THEN 1
-        ELSE 0
-    END AS flag_codigo_ibge_valido,
-    0 AS flag_checksum_valido,
-    0 AS flag_http_ok,
-    CASE
-        WHEN (
-            s.nome IS NULL OR trim(s.nome) = '' OR
-            s.microrregiao_id IS NULL OR
-            s.microrregiao_mesorregiao_uf_sigla IS NULL OR
-            s.regiao_imediata_id IS NULL
-        ) THEN 1
-        ELSE 0
-    END AS flag_campos_obrigatorios_nulos,
-    CASE
-        WHEN (
-            s.microrregiao_mesorregiao_uf_sigla =
-                s.regiao_imediata_regiao_intermediaria_uf_sigla
-            AND s.microrregiao_mesorregiao_uf_regiao_sigla =
-                s.regiao_imediata_regiao_intermediaria_uf_regiao_sigla
-        ) THEN 1
-        ELSE 0
-    END AS flag_consistencia_geografica,
-    NULL AS latencia_processamento_segundos
-FROM silver_municipio s
-WHERE s.id NOT IN (SELECT ibge_id FROM bronze_ibge_raw);
-```
+### 3.6. `gold_resumo_socioeconomico` (Síntese Executiva)
+Consolida os indicadores mais recentes apurados para Mauá:
+1. População Censo 2022: `418.261` habitantes
+2. População Estimada 2026: `429.064` habitantes
+3. PIB a Preços Correntes (2023): `R$ 25.000.732,02 mil` (~R$ 25 bilhões)
+4. PIB per capita (2023): `R$ 59.773,04`
+5. Área Territorial Oficial: `61,937 km²`
+6. Densidade Demográfica: `6.753,01 hab/km²`
+7. Taxa de Alfabetização (15+ anos): `96,74%`
+8. População Homens: `201.348`
+9. População Mulheres: `216.913`
 
 ---
 
 ## 4. Consumo Programático em Python / Pandas
 
-O pacote `desafio_ibge.loading` disponibiliza funções de alto nível com tipagem estrita para consumo direto pelo futuro Dashboard:
+O pacote `desafio_ibge.loading.storage` disponibiliza métodos de acesso direto tipados:
 
 ```python
 from desafio_ibge.loading import (
     read_gold_hierarquia,
     read_gold_auditoria,
+    read_gold_populacao_historica,
+    read_gold_pib_historico,
+    read_gold_demografia_sexo,
+    read_gold_resumo_socioeconomico,
     get_kpis_geograficos,
     get_kpis_qualidade,
+    get_kpis_socioeconomicos,
 )
 
-# 1. Recuperar a hierarquia de Mauá em DataFrame Pandas
-df_hierarquia = read_gold_hierarquia(municipio_id=3529401)
-print(df_hierarquia[["municipio_nome", "uf_sigla", "mesorregiao_nome"]])
+# 1. Carregar série de população com variações anuais
+df_pop = read_gold_populacao_historica(municipio_id=3529401)
+print(df_pop[["ano", "populacao", "tipo_populacao", "crescimento_percentual_ano_anterior"]])
 
-# 2. Obter métricas de auditoria
-df_auditoria = read_gold_auditoria(municipio_id=3529401)
-print(df_auditoria[["municipio_nome", "status_integracao", "latencia_processamento_segundos"]])
+# 2. Carregar série econômica de PIB
+df_pib = read_gold_pib_historico(municipio_id=3529401)
+print(df_pib[["ano", "pib_corrente_mil_reais", "pib_per_capita_reais", "pct_vab_servicos"]])
 
-# 3. Sumarização de KPIs territoriais
-kpis_geo = get_kpis_geograficos()
-print(f"Total de Municípios: {kpis_geo['total_municipios']}")
-print(f"Por Região: {kpis_geo['municipios_por_regiao']}")
+# 3. Carregar indicadores demográficos e razão de sexo
+df_demo = read_gold_demografia_sexo(municipio_id=3529401)
+print(f"Razão de Sexo em Mauá: {df_demo['razao_sexo'].iloc[0]} homens / 100 mulheres")
 
-# 4. Indicadores de Governança
-kpis_dq = get_kpis_qualidade()
-print(f"Taxa de Conformidade: {kpis_dq['taxa_conformidade_pct']}%")
-print(f"Última Ingestão: {kpis_dq['ultima_ingestao_utc']}")
+# 4. Carregar KPIs consolidados
+kpis = get_kpis_socioeconomicos(municipio_id=3529401)
+print(kpis)
 ```
-
----
-
-## 5. Contrato de Dados para o Dashboard Streamlit (Fase 7)
-
-A interface visual do Streamlit consumirá estritamente as seguintes estruturas fornecidas pelas funções utilitárias:
-
-```mermaid
-flowchart LR
-    A["SQLite (ibge_maua.db)"] --> B["gold_vw_municipio_hierarquia"]
-    A --> C["gold_vw_qualidade_auditoria"]
-    B --> D["get_kpis_geograficos()"]
-    C --> E["get_kpis_qualidade()"]
-    D --> F["Streamlit: Cards de Distribuição & Tabelas"]
-    E --> G["Streamlit: Métricas de Qualidade & Freshness"]
-```
-
-### Contrato de Métricas de Qualidade (`get_kpis_qualidade`)
-- `total_registros_auditados`: Contagem total de entidades no pipeline (`int`).
-- `taxa_conformidade_pct`: Porcentagem de registros íntegros (`float`, ex: `100.0`).
-- `total_falhas_qualidade`: Soma de campos nulos e assincronias (`int`).
-- `latencia_media_segundos`: Latência média de processamento (`float | None`).
-- `ultima_ingestao_utc`: Carimbo ISO-8601 da última extração (`str | None`).
-- `ultima_transformacao_utc`: Carimbo ISO-8601 da última carga Silver (`str | None`).
-
----
-
-## 6. Limitações Conhecidas dos Dados
-
-> [!WARNING] Escopo Territorial Exclusivo
-> A API de Localidades do IBGE disponibiliza exclusivamente a malha territorial e a hierarquia político-administrativa do Brasil. Não contempla indicadores socioeconômicos (PIB, renda per capita, escolaridade) nem censitários (população total, pirâmide etária). Tais indicadores demandam APIs específicas (ex.: SIDRA / Censo Demográfico) e não fazem parte do escopo da presente versão do pipeline.
