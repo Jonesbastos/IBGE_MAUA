@@ -10,6 +10,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_DB_PATH = Path(os.environ.get("IBGE_DB_PATH", str(DATA_DIR / "ibge_maua.db")))
 
+# Snapshot SQL versionado para deploy e portabilidade (somente leitura)
+SNAPSHOTS_DIR = DATA_DIR / "snapshots"
+DEFAULT_SNAPSHOT_PATH = Path(
+    os.environ.get("IBGE_SNAPSHOT_PATH", str(SNAPSHOTS_DIR / "ibge_maua_snapshot.sql"))
+)
+
 # Parâmetros oficiais do IBGE para Mauá (SP)
 # Conforme especificado em docs/doc_api.md
 IBGE_BASE_URL = "https://servicodados.ibge.gov.br/api/v1/localidades"

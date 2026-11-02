@@ -8,6 +8,7 @@ Medallion Architecture do projeto desafio_IBGE.
 import hashlib
 import json
 import logging
+import os
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -17,7 +18,7 @@ from typing import Any
 
 import pandas as pd
 
-from desafio_ibge.config.settings import DEFAULT_DB_PATH
+from desafio_ibge.config.settings import DEFAULT_DB_PATH, DEFAULT_SNAPSHOT_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -2451,3 +2452,170 @@ def get_metadados_governanca(
             conn.close()
 
     return metadados
+
+
+# =============================================================================
+# Gestão de Snapshot SQL e Portabilidade para Nuvem (Streamlit Cloud Deploy)
+# =============================================================================
+
+
+def export_database_snapshot(
+    source_db: Path | str = DEFAULT_DB_PATH,
+    target_sql: Path | str = DEFAULT_SNAPSHOT_PATH,
+) -> Path:
+    """Exporta o banco de dados SQLite completo para um script SQL snapshot versionado.
+
+    Utiliza sqlite3.Connection.iterdump() para gerar um arquivo SQL autocontido
+    com os DDLs e INSERTs de todas as tabelas Bronze, Silver e Views Gold.
+
+    Args:
+        source_db: Caminho para o banco SQLite de origem.
+        target_sql: Caminho de destino para gravação do arquivo .sql.
+
+    Returns:
+        Path para o arquivo .sql gerado.
+    """
+    src = Path(resolve_db_path(source_db))
+    if not src.exists():
+        raise FileNotFoundError(f"Banco SQLite de origem não encontrado: {src}")
+
+    target = Path(target_sql)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(str(src))
+    try:
+        dump = "\n".join(conn.iterdump())
+    finally:
+        conn.close()
+
+    target.write_text(dump, encoding="utf-8")
+    logger.info(
+        "Snapshot SQL exportado com sucesso para: %s (%d bytes)",
+        target,
+        len(dump.encode("utf-8")),
+    )
+    return target
+
+
+def restore_database_snapshot(
+    source_sql: Path | str = DEFAULT_SNAPSHOT_PATH,
+    target_db: Path | str = DEFAULT_DB_PATH,
+) -> int:
+    """Restaura o banco SQLite a partir de um script SQL snapshot.
+
+    Executa o script SQL em uma nova conexão SQLite, recriando as tabelas e views.
+
+    Args:
+        source_sql: Caminho para o script SQL snapshot.
+        target_db: Caminho para o banco SQLite de destino.
+
+    Returns:
+        Total de objetos (tabelas e views) restaurados.
+    """
+    src = Path(source_sql)
+    if not src.exists():
+        raise FileNotFoundError(f"Arquivo snapshot SQL não encontrado: {src}")
+
+    target = resolve_db_path(target_db)
+    if target != ":memory:":
+        Path(target).parent.mkdir(parents=True, exist_ok=True)
+
+    sql_script = src.read_text(encoding="utf-8")
+    conn = sqlite3.connect(str(target))
+    try:
+        conn.executescript(sql_script)
+        conn.commit()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT count(*) FROM sqlite_master WHERE type IN ('table', 'view')"
+        )
+        total_obj = int(cursor.fetchone()[0])
+    finally:
+        conn.close()
+
+    logger.info(
+        "Banco restaurado a partir do snapshot %s no destino %s (%d objetos).",
+        src,
+        target,
+        total_obj,
+    )
+    return total_obj
+
+
+def ensure_database_ready(
+    db_path: Path | str | None = None,
+    snapshot_path: Path | str | None = None,
+) -> bool:
+    """Garante que o banco SQLite esteja pronto e populado para leitura analítica.
+
+    Caso o banco de destino não exista ou esteja vazio (situação comum em deploy
+    no Streamlit Community Cloud onde data/*.db é ignorado pelo Git), restaura
+    automaticamente os dados a partir do snapshot SQL versionado, sem efetuar
+    chamadas de rede ou acionar o pipeline de ingestão.
+
+    Caso o banco já exista com dados, nenhuma alteração é realizada (zero-write).
+
+    Args:
+        db_path: Caminho opcional do banco SQLite (padrão: DEFAULT_DB_PATH).
+        snapshot_path: Caminho opcional do snapshot SQL (padrão: DEFAULT_SNAPSHOT_PATH).
+
+    Returns:
+        True se o banco estiver pronto para leitura analítica, False caso contrário.
+    """
+    target = resolve_db_path(db_path)
+    snapshot = Path(snapshot_path or DEFAULT_SNAPSHOT_PATH)
+
+    # 1. Se for banco em memória (:memory:), verificar se já possui tabelas
+    if target == ":memory:":
+        return False
+
+    target_path = Path(target)
+
+    # 2. Se o arquivo já existe e possui dados, manter intacto (zero write)
+    if target_path.exists() and target_path.stat().st_size > 0:
+        try:
+            conn = sqlite3.connect(str(target_path))
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT count(*) FROM sqlite_master "
+                "WHERE type='table' AND name='silver_municipio'"
+            )
+            has_silver = cursor.fetchone()[0] > 0
+            if has_silver:
+                cursor.execute("SELECT count(*) FROM silver_municipio")
+                count_mun = cursor.fetchone()[0]
+                if count_mun > 0:
+                    conn.close()
+                    return True
+            conn.close()
+        except Exception as exc:
+            logger.warning(
+                "Erro ao inspecionar banco existente %s: %s", target_path, exc
+            )
+
+    # 3. Se o banco não existe ou está vazio, verificar se deve restaurar do snapshot
+    # Restaura se for o banco padrão ou se IBGE_AUTO_RESTORE=1 estiver ativo
+    is_default_db = False
+    try:
+        is_default_db = target_path.resolve() == DEFAULT_DB_PATH.resolve()
+    except Exception:
+        is_default_db = str(target_path) == str(DEFAULT_DB_PATH)
+
+    auto_restore_env = os.environ.get("IBGE_AUTO_RESTORE", "0") == "1"
+
+    if (is_default_db or auto_restore_env) and snapshot.exists():
+        logger.info(
+            "Banco SQLite ausente em %s. Restaurando do snapshot versionado: %s",
+            target_path,
+            snapshot,
+        )
+        try:
+            restore_database_snapshot(source_sql=snapshot, target_db=target_path)
+            return True
+        except Exception as exc:
+            logger.error(
+                "Falha ao restaurar banco a partir do snapshot versionado: %s", exc
+            )
+            return False
+
+    return False
