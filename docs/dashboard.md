@@ -1,144 +1,106 @@
 # Dashboard Interativo (Streamlit & Plotly)
 
-O **Dashboard Interativo** do projeto **`desafio_IBGE`** é a interface analítica e de governança que materializa a camada de apresentação da *Medallion Architecture*.
-
-Construído com **Streamlit** e **Plotly Express**, o aplicativo consome exclusivamente os dados processados e modelados nas camadas SQL (com ênfase na camada Gold), exibindo a malha territorial e o monitoramento contínuo de qualidade de dados (Data Quality) do município de **Mauá (SP)**.
+> **Camada do Pipeline**: Apresentação & Visualização
+> **Módulo**: `src/desafio_ibge/visualization/app.py`
+> **Tecnologias**: Streamlit, Plotly Express, Pandas
+> **Status**: Homologado e Operacional
 
 ---
 
-## 1. Arquitetura da Camada de Visualização
+## 1. Visão Geral da Camada de Visualização
 
-O dashboard adota um padrão de arquitetura desacoplada: a interface web não executa regras de negócio, transformações pesadas ou conexões diretas descontroladas ao banco de dados. Em vez disso, consome os contratos e funções utilitárias fornecidos pelo pacote `desafio_ibge.loading`:
+O **Dashboard Interativo** do projeto **`desafio_IBGE`** materializa a camada de consumo analítico da *Medallion Architecture*.
+
+Construído em **Streamlit** e enriquecido com gráficos dinâmicos do **Plotly Express**, o aplicativo consome exclusivamente as visões modeladas na camada Gold e as métricas operacionais da camada Silver/Bronze, proporcionando uma experiência de exploração abrangente sobre a realidade territorial, populacional, econômica e demográfica de **Mauá (SP)**.
 
 ```mermaid
 flowchart TD
-    subgraph Storage ["Camadas SQL (SQLite)"]
-        GoldHierarquia["gold_vw_municipio_hierarquia"]
-        GoldAuditoria["gold_vw_qualidade_auditoria"]
+    subgraph Storage ["Camada Gold (SQLite)"]
+        G_HIER["gold_vw_municipio_hierarquia"]
+        G_AUD["gold_vw_qualidade_auditoria"]
+        G_POP["gold_populacao_historica"]
+        G_PIB["gold_pib_historico"]
+        G_DEMO["gold_demografia_sexo"]
+        G_RES["gold_resumo_socioeconomico"]
     end
 
-    subgraph DataAccess ["Camada de Acesso a Dados"]
-        FnHierarquia["read_gold_hierarquia()"]
-        FnAuditoria["read_gold_auditoria()"]
-        FnKPIsGeo["get_kpis_geograficos()"]
-        FnKPIsDQ["get_kpis_qualidade()"]
+    subgraph DataAccess ["Camada de Acesso a Dados (loading/storage.py)"]
+        FnLoads["Funções de Consulta com Cache<br>@st.cache_data(ttl=60)"]
     end
 
-    subgraph StreamlitApp ["Dashboard Streamlit (visualization/app.py)"]
-        Cache["@st.cache_data (TTL = 60s)"]
-        Cards["Cards Territoriais (st.metric)"]
-        Tabela["Tabela Analítica (st.dataframe)"]
-        Gov["Painel de Governança & Auditoria"]
-        Plots["Gráficos Interativos (Plotly Express)"]
+    subgraph Tabs ["Dashboard Streamlit (5 Abas Analíticas)"]
+        Tab1["Aba 1: Visão Geral"]
+        Tab2["Aba 2: População Histórica"]
+        Tab3["Aba 3: Economia & PIB"]
+        Tab4["Aba 4: Demografia & Alfabetização"]
+        Tab5["Aba 5: Governança & Auditoria"]
     end
 
-    GoldHierarquia --> FnHierarquia & FnKPIsGeo
-    GoldAuditoria --> FnAuditoria & FnKPIsDQ
-
-    FnHierarquia & FnKPIsGeo --> Cache
-    FnAuditoria & FnKPIsDQ --> Cache
-
-    Cache --> Cards & Tabela & Gov & Plots
+    Storage --> DataAccess --> Tabs
 ```
 
 ---
 
-## 2. Dependências Necessárias
+## 2. Como Executar o Dashboard
 
-As dependências foram integradas ao ambiente do projeto via Poetry:
+Para iniciar a aplicação no ambiente virtual local:
 
-- **Streamlit (`^1.66.1`)**: Framework reativo para construção de dashboards analíticos em Python.
-- **Plotly (`^7.1.0`)**: Biblioteca para geração de gráficos estatísticos interativos.
-- **Pandas (`^3.1.0`)**: Manipulação e renderização tabular.
-- **SQLite3**: Driver relacional padrão do Python.
-
----
-
-## 3. Como Executar o Dashboard
-
-Para iniciar o servidor local do Streamlit a partir da raiz do projeto:
-
-```powershell
+```bash
+# Execução direta via Streamlit
 poetry run streamlit run src/desafio_ibge/visualization/app.py
-```
 
-Ou através do atalho configurado no Taskipy:
-
-```powershell
+# Ou via atalho Taskipy
 poetry run task dashboard
 ```
 
-O Streamlit disponibilizará a aplicação no navegador (geralmente em `http://localhost:8501`).
+O Streamlit disponibilizará a aplicação no navegador em `http://localhost:8501`.
 
 ---
 
-## 4. Origem dos Dados e Contratos Consumidos
+## 3. Detalhamento das 5 Abas Analíticas
 
-Os dados apresentados derivam exclusivamente dos endpoints oficiais do IBGE:
-- **API Fonte:** `https://servicodados.ibge.gov.br/api/v1/localidades/municipios/3529401`
-- **Tabelas e Views Utilizadas:**
-  - `silver_municipio`: Tabela física contendo os 22 atributos relacionais em `snake_case`.
-  - `gold_vw_municipio_hierarquia`: View que unifica a árvore territorial de 1989 e 2017.
-  - `gold_vw_qualidade_auditoria`: View de auditoria cruzando Bronze e Silver.
+### 3.1. Aba 1 — Visão Geral Territorial & Socioeconômica
+- **Cards Estratégicos**: Apresenta os indicadores-chave do município com seus respectivos anos e fontes oficiais:
+  - População Censitária (418.261 hab — Censo 2022)
+  - População Estimada Recente (429.064 hab — 2026)
+  - PIB a Preços Correntes (R$ 25,00 bilhões — 2023)
+  - PIB per capita (R$ 59.773,04 — 2023)
+  - Área Territorial Oficial (61,937 km²)
+  - Densidade Demográfica (6.753,01 hab/km²)
+  - Taxa de Alfabetização (96,74%)
+  - Razão de Sexo (92,82 homens por 100 mulheres)
+- **Identificação Territorial**: Hierarquia completa de Mauá (Mesorregião, Microrregião, Regiões Imediata e Intermediária).
+- **Tabela Analítica**: Exibição tabular interativa com mecanismo de busca e botão de exportação em **CSV**.
 
----
+### 3.2. Aba 2 — População Histórica
+- **Gráfico Temporal com Plotly**: Linha de evolução com marcadores distintos para contagens do Censo Demográfico versus Estimativas anuais de população (2001 a 2026).
+- **Filtro Interativo**: Slider de intervalo de anos permitindo recorte temporal sob demanda.
+- **Métricas de Dinâmica Populacional**: Variação absoluta e crescimento percentual acumulado no intervalo selecionado.
+- **Aviso Metodológico**: Destaque para descontinuidades de amostragem entre operações censitárias e estimativas matemáticas.
 
-## 5. Estrutura e Indicadores Apresentados
+### 3.3. Aba 3 — Economia & PIB
+- **Gráficos Econômicos**:
+  - Evolução do Produto Interno Bruto a preços correntes (1999–2023).
+  - Evolução do PIB per capita em reais correntes.
+  - Composição setorial do Valor Adicionado Bruto (Agropecuária, Indústria, Serviços e Administração Pública) em área empilhada percentual.
+- **Governança de Defasagem**: Alerta explícito sobre a defasagem temporal de 2 anos nas Contas Regionais e distinção entre crescimento nominal versus real.
 
-O dashboard está organizado em seções e abas:
+### 3.4. Aba 4 — Demografia & Alfabetização
+- **Pirâmide e Distribuição por Sexo**: Gráfico de rosca e barras comparativas destacando 201.348 homens (48,14%) e 216.913 mulheres (51,86%).
+- **Razão de Sexo Oficial**: Destaque para a proporção estatística de 92,82 homens para cada 100 mulheres.
+- **Educação e Território**: Visualização da taxa de alfabetização da população com 15 anos ou mais (96,74%) e métricas de densidade urbana.
 
-### 5.1. Painel Lateral (Sidebar)
-- Identificação do banco SQLite ativo.
-- Botão **"🔄 Atualizar Dados"** (limpa o cache em memória e força nova leitura).
-- Links diretos para os endpoints e documentação oficial da API do IBGE.
-
-### 5.2. Identificação Territorial (Cards Principais)
-Utiliza `st.metric()` para os atributos de primeiro nível de Mauá:
-- **Município:** Mauá (Código IBGE: `3529401`).
-- **Estado (UF):** São Paulo (SP) — Cód. `35`.
-- **Macrorregião:** Sudeste (SE) — Cód. `3`.
-- **Mesorregião (1989):** Metropolitana de São Paulo.
-- **Microrregião (1989):** São Paulo.
-- **Região Imediata (2017):** São Paulo (Cód. `350001`).
-- **Região Intermediária (2017):** São Paulo (Cód. `3501`).
-
-### 5.3. Aba 1 — Tabela Analítica
-- Exibe o DataFrame com nomes de colunas humanizados em português.
-- Campo de busca textual por código IBGE ou nome do município.
-- Botão para exportação dos dados da visualização em formato **CSV**.
-
-### 5.4. Aba 2 — Governança & Data Quality
-- **Taxa de Conformidade:** Percentual de sincronismo entre as camadas Bronze e Silver (`100%`).
-- **Contadores de Camadas:** Registros na Bronze vs Registros na Silver.
-- **Falhas de Qualidade:** Somatório de campos nulos e assincronias detectadas.
-- **Metadados de Freshness:** Data/hora UTC da última ingestão e transformação.
-- **Latência de Processamento:** Tempo decorrido em segundos entre a captura bruta e a carga relacional.
-- **Expansor de Log SQL:** Visualização do registro atômico retornado por `gold_vw_qualidade_auditoria`.
-
-### 5.5. Aba 3 — Visualizações Gráficas (Plotly Express)
-- **Comparativo por Camada:** Gráfico de barras categorizado com o volume de dados nas camadas Bronze, Silver e Gold.
-- **Conformidade de Regras:** Gráfico de barras horizontal demonstrando a validação atômica de código IBGE, checksum SHA-256, status HTTP 200 e consistência entre as divisões regionais.
+### 3.5. Aba 5 — Governança & Auditoria
+- **Volumetria Medallion Integrada**: Gráfico e tabela discriminando o volume real de registros entre o domínio Territorial e o domínio Socioeconômico (totalizando **322 registros reais no SQLite**).
+- **Métricas de Data Quality**: Taxa de conformidade do pipeline (100%), ausência de nulos em atributos mandatórios e integridade dos códigos IBGE.
+- **Linhagem e Latência**: Carimbos UTC de captura na Bronze e transformação na Silver, com latência média de execução em segundos.
+- **Catálogo de Metadados**: Relação de tabelas e views com descrições formais, chaves primárias e granularidade.
 
 ---
 
-## 6. Performance e Política de Cache
+## 4. Performance, Resiliência e Testes de Interface
 
-- **Decorator `@st.cache_data(ttl=60)`**: As quatro funções de carregamento (`load_hierarquia_data`, `load_auditoria_data`, `load_kpis_geograficos`, `load_kpis_qualidade`) mantêm cache em memória com validade de 60 segundos.
-- **Atualização sob Demanda**: O botão **"🔄 Atualizar Dados"** aciona `st.cache_data.clear()` e re-executa a aplicação (`st.rerun()`), garantindo que novas cargas de dados sejam visualizadas imediatamente.
-- **Segurança de Conexões**: Nenhuma conexão SQLite é compartilhada entre requisições; cada leitura é gerenciada pontualmente por context managers.
-
----
-
-## 7. Tratamento de Situações Sem Dados e Erros
-
-1. **Banco Inexistente ou Camada Gold Vazia:**
-   - O aplicativo detecta que `df_hierarquia.empty` é verdadeiro e exibe um alerta amigável (`st.warning()`), instruindo o usuário sobre o comando de ingestão necessário, sem quebrar ou gerar telas de erro desnecessárias.
-2. **Falha Operacional no Banco SQLite:**
-   - Erros de I/O ou corrupção no banco são interceptados via bloco `try/except`, exibindo uma mensagem limpa (`st.error()`) e registrando o rastreio técnico nos logs da aplicação via `logger.exception`.
-
----
-
-## 8. Limitações Conhecidas
-
-> [!WARNING] Escopo de Dados Disponíveis
-> Como a fonte oficial é a API de Localidades do IBGE e o escopo do projeto é focado no município de **Mauá (SP)**, o banco de dados contém uma única entidade municipal. O dashboard foi rigorosamente calibrado para refletir com fidelidade esse volume, abstendo-se de gerar gráficos de dispersão ou séries temporais artificiais que sugerissem um volume de dados inexistente.
+- **Cache Inteligente**: Decoração com `@st.cache_data(ttl=60)` em todas as funções de leitura, eliminando requisições repetidas ao banco de dados durante interações do usuário.
+- **Botão de Atualização**: Gatilho na barra lateral que aciona `st.cache_data.clear()` e recarrega os dados imediatamente.
+- **Degradação Suave (Graceful Fallback)**: Se o banco de dados ainda não foi criado ou se encontrar vazio, a aplicação intercepta a condição e exibe alertas amigáveis (`st.warning()`), instruindo o usuário a executar o pipeline sem quebrar a interface.
+- **Testes Automatizados de Interface**: A suíte de testes em `tests/test_visualization.py` utiliza `streamlit.testing.v1.AppTest` para validar a inicialização, renderização de abas e componentes sob múltiplos cenários de banco de dados (banco inexistente, banco vazio, banco territorial e banco completo).

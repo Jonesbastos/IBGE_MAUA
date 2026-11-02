@@ -2,29 +2,45 @@
 
 > **Módulo do Pipeline**: `desafio_ibge.loading.storage`
 > **Banco de Dados**: SQLite local (`data/ibge_maua.db`)
-> **Status**: Homologado
+> **Status**: Homologado e Operacional
 
 ---
 
 ## 1. Visão Geral e Responsabilidades
 
-O módulo `desafio_ibge.loading.storage` gerencia a persistência relacional do pipeline sob a **Medallion Architecture**, garantindo consistência transacional, rastreabilidade e idempotência estrita sem dependências de ORMs pesados.
+O módulo `desafio_ibge.loading.storage` gerencia a camada de persistência relacional do pipeline sob a **Medallion Architecture**, garantindo consistência transacional ACID, rastreabilidade, imutabilidade da camada bruta e idempotência estrita sem sobrecarga de ORMs pesados.
 
 ```mermaid
 flowchart TD
-    EXT["📥 Ingestão HTTP<br>(JSON Bruto)"] -->|save_bronze| B_TAB[("🥉 Tabela bronze_ibge_raw<br>(JSON + Metadados + Hash)")]
-    B_TAB -.->|read_bronze| TRF["⚙️ Validação & Transformação<br>(Pydantic + Pandas)"]
-    TRF -->|save_silver| S_TAB[("🥈 Tabela silver_municipio<br>(22 Colunas Relacionais)")]
-    S_TAB -->|read_silver| CONS["📊 Consumo Analítico / Dashboard"]
+    subgraph BronzeStore ["🥉 Camada Bronze (Tabelas Físicas)"]
+        B_RAW["bronze_ibge_raw<br>(JSON Territorial + SHA-256)"]
+        B_SOC["bronze_ibge_socioeconomico<br>(JSONs Pesquisas + SHA-256)"]
+    end
+
+    subgraph SilverStore ["🥈 Camada Silver (Tabelas Físicas)"]
+        S_MUN["silver_municipio<br>(22 colunas)"]
+        S_POP["silver_ibge_populacao<br>(Série 2001-2026)"]
+        S_PIB["silver_ibge_pib<br>(Série 1999-2023 Long)"]
+        S_CENS["silver_ibge_censitario<br>(Censo 2022 Long)"]
+    end
+
+    subgraph GoldStore ["🥇 Camada Gold (Views Declarativas)"]
+        G_VIEWS["6 SQL Views Analíticas<br>(Custo Zero de Armazenamento)"]
+    end
+
+    B_RAW --> S_MUN
+    B_SOC --> S_POP & S_PIB & S_CENS
+    S_MUN & S_POP & S_PIB & S_CENS --> G_VIEWS
 ```
 
 ---
 
 ## 2. Estrutura SQL das Tabelas (DDL)
 
-### 2.1. Camada Bronze (`bronze_ibge_raw`)
-Preserva o JSON original retornado pelo IBGE acompanhado de metadados de auditoria:
+### 2.1. Camada Bronze
 
+#### 1. `bronze_ibge_raw` (Territorial)
+Armazena a resposta bruta do endpoint de Localidades:
 ```sql
 CREATE TABLE IF NOT EXISTS bronze_ibge_raw (
     ibge_id INTEGER PRIMARY KEY,
@@ -36,21 +52,28 @@ CREATE TABLE IF NOT EXISTS bronze_ibge_raw (
 );
 ```
 
-#### Dicionário de Campos Bronze:
-| Campo | Tipo SQL | Restrição | Descrição |
-| :--- | :--- | :--- | :--- |
-| `ibge_id` | `INTEGER` | `PRIMARY KEY` | Código numérico de 7 dígitos do município (`3529401`). |
-| `endpoint_url` | `TEXT` | `NOT NULL` | URL oficial consultada no IBGE. |
-| `payload_json` | `TEXT` | `NOT NULL` | JSON bruto original completo em UTF-8 com chaves ordenadas. |
-| `ingestion_timestamp` | `TEXT` | `NOT NULL` | Carimbo de data/hora UTC no formato ISO 8601. |
-| `http_status` | `INTEGER` | `NOT NULL` | Código de resposta HTTP (ex.: 200). |
-| `checksum_sha256` | `TEXT` | `NOT NULL` | Hash SHA-256 de 64 caracteres hexadecimais para auditoria. |
+#### 2. `bronze_ibge_socioeconomico` (Socioeconômico)
+Armazena as respostas brutas dos agregados e pesquisas do IBGE com chave primária composta:
+```sql
+CREATE TABLE IF NOT EXISTS bronze_ibge_socioeconomico (
+    municipio_id INTEGER NOT NULL,
+    indicador TEXT NOT NULL,
+    periodo_referencia TEXT NOT NULL,
+    endpoint_url TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    ingestion_timestamp TEXT NOT NULL,
+    http_status INTEGER NOT NULL,
+    checksum_sha256 TEXT NOT NULL,
+    PRIMARY KEY (municipio_id, indicador, periodo_referencia)
+);
+```
 
 ---
 
-### 2.2. Camada Silver (`silver_municipio`)
-Armazena as 22 variáveis relacionais normalizadas em `snake_case`, validadas e tipadas:
+### 2.2. Camada Silver
 
+#### 1. `silver_municipio` (Territorial)
+Armazena a entidade canônica municipal achatada em 22 atributos relacionais:
 ```sql
 CREATE TABLE IF NOT EXISTS silver_municipio (
     id INTEGER PRIMARY KEY,
@@ -79,113 +102,101 @@ CREATE TABLE IF NOT EXISTS silver_municipio (
 );
 ```
 
----
-
-## 3. Estratégia de UPSERT e Idempotência
-
-Para garantir que reexecuções sucessivas do pipeline não gerem duplicações ou erros de chave primária, são utilizadas cláusulas nativas de `UPSERT` do SQLite:
-
-### Bronze UPSERT:
+#### 2. `silver_ibge_populacao` (Série Histórica de População)
+Armazena as contagens censitárias e estimativas anuais:
 ```sql
-INSERT INTO bronze_ibge_raw (
-    ibge_id, endpoint_url, payload_json, ingestion_timestamp, http_status, checksum_sha256
-) VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT(ibge_id) DO UPDATE SET
-    endpoint_url = excluded.endpoint_url,
-    payload_json = excluded.payload_json,
-    ingestion_timestamp = excluded.ingestion_timestamp,
-    http_status = excluded.http_status,
-    checksum_sha256 = excluded.checksum_sha256;
+CREATE TABLE IF NOT EXISTS silver_ibge_populacao (
+    municipio_id INTEGER NOT NULL,
+    ano INTEGER NOT NULL,
+    populacao INTEGER NOT NULL,
+    tipo_populacao TEXT NOT NULL,
+    unidade_medida TEXT NOT NULL,
+    fonte_pesquisa TEXT NOT NULL,
+    transformed_at TEXT NOT NULL,
+    PRIMARY KEY (municipio_id, ano, tipo_populacao)
+);
 ```
 
-### Silver UPSERT:
+#### 3. `silver_ibge_pib` (Série Econômica / Contas Regionais)
+Armazena rubricas de PIB, VABs e impostos em modelo tabular long:
 ```sql
-INSERT INTO silver_municipio (id, nome, ..., transformed_at)
-VALUES (?, ?, ..., ?)
-ON CONFLICT(id) DO UPDATE SET
-    nome = excluded.nome,
-    microrregiao_id = excluded.microrregiao_id,
-    ...
-    transformed_at = excluded.transformed_at;
+CREATE TABLE IF NOT EXISTS silver_ibge_pib (
+    municipio_id INTEGER NOT NULL,
+    ano INTEGER NOT NULL,
+    variavel_codigo INTEGER NOT NULL,
+    variavel_nome TEXT NOT NULL,
+    valor REAL NOT NULL,
+    unidade_medida TEXT NOT NULL,
+    fonte_pesquisa TEXT NOT NULL,
+    transformed_at TEXT NOT NULL,
+    PRIMARY KEY (municipio_id, ano, variavel_codigo)
+);
+```
+
+#### 4. `silver_ibge_censitario` (Indicadores Censitários 2022)
+Armazena variáveis do Censo Demográfico:
+```sql
+CREATE TABLE IF NOT EXISTS silver_ibge_censitario (
+    municipio_id INTEGER NOT NULL,
+    ano INTEGER NOT NULL,
+    variavel_codigo INTEGER NOT NULL,
+    variavel_nome TEXT NOT NULL,
+    valor REAL NOT NULL,
+    unidade_medida TEXT NOT NULL,
+    fonte_pesquisa TEXT NOT NULL,
+    categoria TEXT,
+    transformed_at TEXT NOT NULL,
+    PRIMARY KEY (municipio_id, variavel_codigo)
+);
 ```
 
 ---
 
-## 4. Instruções de Inicialização e Utilização
+## 3. Estratégia de UPSERT e Idempotência Estrita
 
-### 4.1. Exemplo de Código em Python:
+Para garantir que reexecuções sucessivas do pipeline não gerem duplicações ou falhas de chave primária, são utilizadas cláusulas nativas de `UPSERT` (`INSERT ... ON CONFLICT DO UPDATE SET`):
+
+- **Tabelas com Chave Simples** (`bronze_ibge_raw`, `silver_municipio`, `silver_ibge_censitario`):
+  Atualizam os campos de carga e os carimbos de auditoria (`ingestion_timestamp` ou `transformed_at`).
+- **Tabelas com Chave Composta** (`bronze_ibge_socioeconomico`, `silver_ibge_populacao`, `silver_ibge_pib`):
+  Identificam precisamente a tupla única `(municipio_id, ano, variavel_codigo)` ou `(municipio_id, indicador, periodo_referencia)`, garantindo que atualizações anuais ocorram in-place.
+
+---
+
+## 4. Gestão Transacional e Robustez de I/O
+
+O acesso ao banco ocorre sob o gerenciador transacional `db_transaction`:
 ```python
-from desafio_ibge.extraction.ibge_client import get_municipio_maua, IBGEClient
-from desafio_ibge.transformation.normalizer import json_to_dataframe
-from desafio_ibge.loading.storage import (
-    init_db,
-    save_bronze,
-    save_silver,
-    read_bronze,
-    read_silver,
-)
-
-# 1. Inicializa o banco de dados (cria tabelas se não existirem)
-init_db()
-
-# 2. Extrai dados da API oficial
-raw_payload = get_municipio_maua()
-endpoint = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios/3529401"
-
-# 3. Persiste na Camada Bronze (imutabilidade e linhagem)
-checksum = save_bronze(raw_payload, endpoint_url=endpoint)
-print(f"Bronze salvo com hash SHA-256: {checksum[:8]}...")
-
-# 4. Transforma e valida
-df_silver = json_to_dataframe(raw_payload)
-
-# 5. Persiste na Camada Silver (dados relacionais conformed)
-rows = save_silver(df_silver)
-print(f"Silver salva com {rows} registro(s).")
-
-# 6. Consultas
-df_consultado = read_silver(3529401)
-print(df_consultado[["id", "nome", "microrregiao_nome", "microrregiao_mesorregiao_uf_sigla"]])
+@contextmanager
+def db_transaction(db_path: Path | str = DB_PATH):
+    conn = sqlite3.connect(str(db_path), timeout=10.0)
+    conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA busy_timeout = 5000;")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 ```
+
+- **Rollback Imediato**: Previne gravação parcial em caso de falha em qualquer lote.
+- **Modo WAL (Write-Ahead Logging)**: Permite leituras concorrentes simultâneas pelo Streamlit durante a execução de processos de escrita.
+- **Busy Timeout**: Espera ativa de até 5000 ms para concorrência de I/O em disco.
 
 ---
 
-## 5. Exemplos de Consultas SQL Úteis
+## 5. Funções Utilitárias e Catálogo de Objetos
 
-### 5.1. Verificação de Auditoria na Bronze
-```sql
-SELECT
-    ibge_id,
-    endpoint_url,
-    ingestion_timestamp,
-    http_status,
-    substr(checksum_sha256, 1, 16) AS hash_curto,
-    length(payload_json) AS tamanho_bytes
-FROM bronze_ibge_raw;
-```
+O módulo disponibiliza funções de alto nível para persistência e auditoria:
 
-### 5.2. Consulta Consolidada na Silver
-```sql
-SELECT
-    id AS codigo_ibge,
-    nome AS municipio,
-    microrregiao_nome AS microrregiao,
-    microrregiao_mesorregiao_nome AS mesorregiao,
-    regiao_imediata_nome AS regiao_imediata,
-    microrregiao_mesorregiao_uf_sigla AS uf,
-    transformed_at
-FROM silver_municipio
-WHERE id = 3529401;
-```
-
-### 5.3. Comparativo de Frescor (Linhagem Bronze $\leftrightarrow$ Silver)
-```sql
-SELECT
-    b.ibge_id,
-    s.nome,
-    b.ingestion_timestamp AS ingerido_em,
-    s.transformed_at AS tratado_em,
-    b.checksum_sha256
-FROM bronze_ibge_raw b
-JOIN silver_municipio s ON b.ibge_id = s.id;
-```
+- `save_bronze_socioeconomico(municipio_id, indicador, periodo, endpoint, payload)`
+- `save_silver_populacao(df, db_path)`
+- `save_silver_pib(df, db_path)`
+- `save_silver_censitario(df, db_path)`
+- `get_volumetria_medallion(db_path)`: Retorna contagem real segregando tabelas por camada e domínio (Territorial vs Socioeconômico).
+- `get_metadados_governanca(db_path)`: Retorna metadados de governança consolidados, incluindo lista de tabelas, status de auditoria e métricas de cobertura.
+- `CATALOGO_OBJETOS_MEDALLION`: Dicionário constante contendo a taxonomia e descrição formal de cada objeto gerenciado.
