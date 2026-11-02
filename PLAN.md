@@ -3,8 +3,8 @@
 > **Projeto**: `desafio_IBGE`
 > **Papel**: Engenheiro de Dados Sênior e Arquiteto de Software
 > **Arquitetura de Dados**: Medallion Architecture (Bronze $\rightarrow$ Silver $\rightarrow$ Gold) no SQLite
-> **Status**: Concluído (Fases 1 a 10 Homologadas com Sucesso)
-> **Data de Atualização**: 30 de Outubro de 2026
+> **Status**: Concluído (Fases 1 a 12 Homologadas com Sucesso)
+> **Data de Atualização**: 02 de Novembro de 2026
 > **Documentos Normativos de Referência**:
 > - Diretrizes Técnicas e de Governança: [`SKILL.md`](file:///c:/Users/Jones/projeto/desafio_IBGE/SKILL.md)
 > - Contrato de Dados da API do IBGE: [`docs/doc_api.md`](file:///c:/Users/Jones/projeto/desafio_IBGE/docs/doc_api.md)
@@ -539,3 +539,65 @@ flowchart LR
   - Zero chamadas HTTP para o IBGE durante a inicialização do dashboard.
   - Testes automatizados verdes com cobertura superior a 50% (93.44% alcançado).
   - Repositório pronto para publicação imediata no Streamlit Community Cloud.
+
+
+---
+
+### FASE 12 — Profissionalização do Projeto IBGE Mauá (Concluída)
+
+- **Objetivo**: Profissionalizar a apresentação técnica do projeto `desafio_IBGE` para portfólio no GitHub, LinkedIn e processos seletivos de Engenharia de Dados, alinhando documentação, métricas reais, evidências visuais do dashboard publicado em produção e materiais de divulgação técnica de alto impacto.
+- **Contexto Operacional e URLs Homologadas**:
+  - Repositório GitHub: `https://github.com/Jonesbastos/IBGE_MAUA`
+  - Dashboard Publicado em Produção: `https://ibge-maua-dashboard.streamlit.app/`
+  - Documentação Técnica (GitHub Pages): `https://jonesbastos.github.io/IBGE_MAUA/`
+- **Atividades Técnicas Concluídas**:
+  1. **Reestruturação e Modernização Completa do `README.md`**:
+     - Badges oficiais de status (Python 3.13.13, Poetry, Ruff, Cobertura 93.44%, Docs GitHub Pages, Streamlit Cloud, Licença MIT).
+     - Links de destaque para Dashboard em produção, Documentação técnica e Artigo no LinkedIn.
+     - Formulação executiva do problema de negócio e motivação técnica (heterogeneidade de APIs públicas, defasagens de pesquisas, drift de schema e custos de infraestrutura).
+     - Diagrama Mermaid revisado do fluxo end-to-end integrando fontes IBGE, camadas Medalhão (Bronze, Silver e Gold), Dashboard Streamlit e o Snapshot SQL versionado.
+     - Tabela detalhada de justificativas técnicas para a escolha de cada ferramenta da stack.
+     - Detalhamento funcional das 5 abas analíticas do Dashboard.
+     - Seção "Demonstração do Dashboard" mapeando os slots para as capturas de tela em `docs/assets/dashboard/` com orientações práticas para obtenção dos prints.
+     - Árvore de diretórios comentada com todas as pastas do projeto.
+     - Guia completo de instalação e execução local passo a passo.
+     - Documentação da estratégia de deploy serverless/stateless no Streamlit Cloud com auto-restauração via snapshot SQL em < 20 ms (`ensure_database_ready`).
+     - Detalhamento da governança, testes (152 testes automatizados) e fidelidade aos dados oficiais.
+     - Roadmap claro de evolução técnica do projeto (expansão ABC, Airflow, DW Cloud e Great Expectations).
+  2. **Estruturação de Evidências Visuais (`docs/assets/dashboard/`)**:
+     - Criação da pasta `docs/assets/dashboard/` com versionamento controlado (`.gitkeep`).
+     - Mapeamento e documentação padronizada dos 5 arquivos de evidência:
+       - `01_visao_geral.png`
+       - `02_evolucao_populacional.png`
+       - `03_economia_pib.png`
+       - `04_demografia_alfabetizacao.png`
+       - `05_governanca_auditoria.png`
+     - Inclusão da tabela de mapeamento visual no `README.md` e em `docs/dashboard.md`.
+  3. **Material de Apresentação para LinkedIn & Portfólio (`docs/portfolio_linkedin.md`)**:
+     - Criação de artigo técnico completo estruturado com gancho, desafios de dados públicos, solução arquitetural Medalhão, stack tecnológica, diferenciais de engenharia de dados, métricas reais e links de homologação.
+     - Criação de post conciso e direto para o feed do LinkedIn focado em impacto, bullets objetivos e métricas comprovadas.
+     - Guia prático de publicação com dicas de engajamento técnico, ordem de prints recomendada e hashtags estratégicas.
+     - Inclusão da página no `mkdocs.yml` sob a seção "Apresentação & Portfólio".
+  4. **Harmonização da Documentação MkDocs**:
+     - Atualização de `docs/index.md` e `docs/dashboard.md` com referências ao dashboard em produção (`https://ibge-maua-dashboard.streamlit.app/`) e ao guia de portfólio.
+     - Validação estrita de build MkDocs (`poetry run mkdocs build --strict`) com zero erros e zero warnings.
+  5. **Garantia de Qualidade e Conformidade**:
+     - Execução da suíte completa de testes: 152 testes passando com 93.44% de cobertura.
+     - Checagem estática com Ruff (`ruff check` e `ruff format --check`) 100% limpa.
+     - Homologação dos hooks do pre-commit (`pre-commit run --all-files`).
+- **Checklist da FASE 12 (Concluída)**:
+  - [x] Análise inicial completa de escopo, arquivos, métricas reais e URLs de produção.
+  - [x] Reestruturação integral do `README.md` como vitrine técnica profissional.
+  - [x] Criação do diretório de assets visuais `docs/assets/dashboard/` e mapeamento dos prints.
+  - [x] Atualização de `docs/dashboard.md` e `docs/index.md` com URLs ativas e guia de evidências.
+  - [x] Elaboração do documento `docs/portfolio_linkedin.md` com versões longa, concisa e guia de postagem.
+  - [x] Atualização do arquivo de configuração `mkdocs.yml` integrando a nova página ao menu de navegação.
+  - [x] Validação estrita do MkDocs (`poetry run mkdocs build --strict`) sem warnings.
+  - [x] Execução e validação de 152 testes automatizados mantendo cobertura em 93.44%.
+  - [x] Verificação estática com Ruff (check e format) e pre-commit em todos os arquivos.
+  - [x] Registro da conclusão da FASE 12 no `PLAN.md`.
+- **Critérios de Aceitação**:
+  - Repositório com apresentação técnica de nível sênior, pronta para avaliação em processos seletivos e demonstração no LinkedIn.
+  - Documentação estática e Dashboard em nuvem perfeitamente linkados e sincronizados.
+  - Suíte de testes 100% verde com cobertura mantida acima de 93%.
+  - Zero erros de linter, formatação ou build estrito de documentação.
